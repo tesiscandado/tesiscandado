@@ -1,8 +1,7 @@
 import axios from 'axios'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-// IP de tu PC — celular y PC deben estar en el mismo WiFi
-const BASE_URL = 'http://192.168.0.2:8000' // v3
+const BASE_URL = 'https://tesiscandado.onrender.com'
 
 const api = axios.create({ baseURL: BASE_URL })
 
