@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv/Scripts/python -c \"import bcrypt; h1=bcrypt.hashpw\\(b'admin',bcrypt.gensalt\\(\\)\\).decode\\(\\); h2=bcrypt.hashpw\\(b'operador',bcrypt.gensalt\\(\\)\\).decode\\(\\); print\\('ADMIN:',h1\\); print\\('OPERADOR:',h2\\)\")",
+      "Bash(npm install *)",
+      "Bash(npx expo *)",
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"import bcrypt; print\\(bcrypt.hashpw\\(b'Kevin123', bcrypt.gensalt\\(\\)\\).decode\\(\\)\\)\")"
+    ]
+  }
+}
