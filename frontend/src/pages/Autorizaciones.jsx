@@ -5,9 +5,10 @@ const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-w
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
 
 const estadoToken = {
-  activo:   'bg-green-900 text-green-300',
-  pendiente:'bg-yellow-900 text-yellow-300',
-  expirado: 'bg-gray-800 text-gray-400',
+  activo:    'bg-green-900 text-green-300',
+  pendiente: 'bg-yellow-900 text-yellow-300',
+  programado:'bg-blue-900 text-blue-300',
+  expirado:  'bg-gray-800 text-gray-400',
 }
 
 export default function Autorizaciones() {
@@ -19,7 +20,7 @@ export default function Autorizaciones() {
 
   // Forms
   const [formFisico, setFormFisico] = useState({ candado_id: '', etiqueta: '', token: '' })
-  const [formApp, setFormApp]       = useState({ candado_id: '', operador_id: '' })
+  const [formApp, setFormApp]       = useState({ candado_id: '', operador_id: '', modo: 'inmediato', valido_desde: '', valido_hasta: '' })
 
   const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   function generarToken() {
@@ -58,12 +59,25 @@ export default function Autorizaciones() {
   async function handleApp(e) {
     e.preventDefault()
     try {
-      await api.post('/autorizacion/tokens/app', {
+      const payload = {
         candado_id:  parseInt(formApp.candado_id),
         operador_id: parseInt(formApp.operador_id),
-      })
-      setMsg('Token generado y asignado al operador')
-      setFormApp({ candado_id: '', operador_id: '' })
+        modo:        formApp.modo,
+      }
+      if (formApp.modo === 'programado') {
+        if (!formApp.valido_desde || !formApp.valido_hasta) {
+          setMsg('Define la hora de inicio y de fin')
+          return
+        }
+        // Convertir datetime-local a ISO UTC
+        payload.valido_desde = new Date(formApp.valido_desde).toISOString()
+        payload.valido_hasta = new Date(formApp.valido_hasta).toISOString()
+      }
+      await api.post('/autorizacion/tokens/app', payload)
+      setMsg(formApp.modo === 'programado'
+        ? 'Token programado. Se generará al llegar la hora de inicio.'
+        : 'Token generado (válido 2 minutos). Operador debe grabarlo ya.')
+      setFormApp({ candado_id: '', operador_id: '', modo: 'inmediato', valido_desde: '', valido_hasta: '' })
       cargarTokens()
     } catch (err) {
       setMsg(err.response?.data?.detail || 'Error al generar')
@@ -139,8 +153,34 @@ export default function Autorizaciones() {
               <option value="">Seleccionar operador</option>
               {operadores.map(op => <option key={op.id} value={op.id}>{op.nombre} ({op.usuario})</option>)}
             </select>
+
+            {/* Modo de validez */}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setFormApp({ ...formApp, modo: 'inmediato' })}
+                className={`${btnCls} flex-1 ${formApp.modo === 'inmediato' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                ⚡ Inmediato (2 min)
+              </button>
+              <button type="button" onClick={() => setFormApp({ ...formApp, modo: 'programado' })}
+                className={`${btnCls} flex-1 ${formApp.modo === 'programado' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                🕒 Programado
+              </button>
+            </div>
+
+            {formApp.modo === 'programado' && (
+              <div className="flex flex-col gap-2">
+                <label className="text-gray-400 text-xs">Inicio de validez (se genera el token a esta hora)</label>
+                <input type="datetime-local" value={formApp.valido_desde}
+                  onChange={e => setFormApp({ ...formApp, valido_desde: e.target.value })} className={inputCls} required />
+                <label className="text-gray-400 text-xs">Fin de validez</label>
+                <input type="datetime-local" value={formApp.valido_hasta}
+                  onChange={e => setFormApp({ ...formApp, valido_hasta: e.target.value })} className={inputCls} required />
+              </div>
+            )}
+
             {msg && <p className="text-sm text-blue-400">{msg}</p>}
-            <button type="submit" className={`${btnCls} bg-blue-600 hover:bg-blue-500 text-white`}>Generar token</button>
+            <button type="submit" className={`${btnCls} bg-blue-600 hover:bg-blue-500 text-white`}>
+              {formApp.modo === 'programado' ? 'Programar token' : 'Generar token'}
+            </button>
           </form>
         </div>
       )}
@@ -172,7 +212,11 @@ export default function Autorizaciones() {
                 <td className="px-4 py-3 text-white">
                   {t.tipo === 'rfid_fisico' ? t.etiqueta : t.usuarios?.nombre ?? '—'}
                 </td>
-                <td className="px-4 py-3 font-mono text-green-400 text-xs">{t.token}</td>
+                <td className="px-4 py-3 font-mono text-green-400 text-xs">
+                  {t.token
+                    ? t.token
+                    : <span className="text-blue-400">⏳ {t.valido_desde ? new Date(t.valido_desde).toLocaleString() : 'programado'}</span>}
+                </td>
                 <td className="px-4 py-3 text-gray-400">{t.candados?.descripcion}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-1 rounded-full ${estadoToken[t.estado] ?? estadoToken.pendiente}`}>

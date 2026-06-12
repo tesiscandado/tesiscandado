@@ -11,11 +11,29 @@ class ValidarTokenInput(BaseModel):
     token: str
 
 
+def _registrar_acceso(codigo_evento, candado_id, operador_id=None):
+    """Crea un evento de acceso (apertura_ok / apertura_denegada) enlazando el operador"""
+    tipo = (
+        supabase.table("tipos_evento")
+        .select("id, es_alarma, severidad")
+        .eq("codigo", codigo_evento)
+        .limit(1)
+        .execute()
+    )
+    if not tipo.data:
+        return
+    supabase.table("eventos").insert({
+        "candado_id":     candado_id,
+        "tipo_evento_id": tipo.data[0]["id"],
+        "operador_id":    operador_id,
+    }).execute()
+
+
 @router.post("/validar")
 def validar_token(data: ValidarTokenInput):
     res = (
         supabase.table("tokens_sincronizacion")
-        .select("id, estado, candado_id, candados(descripcion)")
+        .select("id, estado, candado_id, operador_id, valido_hasta, candados(descripcion)")
         .eq("token", data.token.strip().upper())
         .limit(1)
         .execute()
@@ -24,10 +42,29 @@ def validar_token(data: ValidarTokenInput):
         return {"acceso": False, "mensaje": "Token no reconocido"}
 
     token = res.data[0]
+    candado_id = token["candado_id"]
+    candado = token["candados"]["descripcion"] if token["candados"] else "Candado"
+
+    # Verificar expiración por tiempo
+    if token.get("valido_hasta"):
+        try:
+            vence = datetime.fromisoformat(token["valido_hasta"].replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > vence:
+                if token["estado"] != "expirado":
+                    supabase.table("tokens_sincronizacion").update(
+                        {"estado": "expirado"}
+                    ).eq("id", token["id"]).execute()
+                _registrar_acceso("apertura_denegada", candado_id, token.get("operador_id"))
+                return {"acceso": False, "mensaje": "Token expirado"}
+        except (ValueError, AttributeError):
+            pass
+
     if token["estado"] != "activo":
+        _registrar_acceso("apertura_denegada", candado_id, token.get("operador_id"))
         return {"acceso": False, "mensaje": f"Token {token['estado']}"}
 
-    candado = token["candados"]["descripcion"] if token["candados"] else "Candado"
+    # Acceso concedido — registrar evento con el operador
+    _registrar_acceso("apertura_ok", candado_id, token.get("operador_id"))
     return {"acceso": True, "mensaje": f"Acceso concedido a {candado}"}
 
 

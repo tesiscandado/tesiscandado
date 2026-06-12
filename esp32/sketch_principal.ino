@@ -103,16 +103,16 @@ void validarToken(String token) {
     bool acceso     = res["acceso"];
     const char* msg = res["mensaje"];
     Serial.printf("   -> %s\n", msg);
+    // Nota: el backend (/validar) ya registra el evento de acceso con el operador.
+    // Aqui solo se da la senal sonora segun el resultado.
     if (acceso) {
       ledcWriteTone(BUZZER_PIN, 1000); delay(200);
       ledcWriteTone(BUZZER_PIN, 0);   delay(100);
       ledcWriteTone(BUZZER_PIN, 1000); delay(200);
       ledcWriteTone(BUZZER_PIN, 0);
-      enviarEvento("apertura_ok");
     } else {
       ledcWriteTone(BUZZER_PIN, 400); delay(800);
       ledcWriteTone(BUZZER_PIN, 0);
-      enviarEvento("apertura_denegada");
     }
   }
   http.end();

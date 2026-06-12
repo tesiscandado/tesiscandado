@@ -71,7 +71,7 @@ export default function Registros() {
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">{new Date(e.ocurrido_en).toLocaleString()}</td>
                     <td className="px-4 py-3 text-white">{e.tipos_evento?.nombre}</td>
                     <td className="px-4 py-3 text-gray-400">{e.candados?.descripcion}</td>
-                    <td className="px-4 py-3 text-gray-400">{e.credenciales?.operadores?.nombre ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-400">{e.usuarios?.nombre ?? '—'}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full ${sev.color}`}>{sev.label}</span>
                     </td>

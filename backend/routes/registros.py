@@ -14,7 +14,8 @@ def registro_accesos(limite: int = 100, candado_id: Optional[int] = None):
     ids = [t["id"] for t in tipos.data] if tipos.data else []
 
     query = supabase.table("eventos").select(
-        "id, ocurrido_en, tipos_evento(nombre, severidad, es_alarma), candados(descripcion), credenciales(uid_nfc)"
+        "id, ocurrido_en, tipos_evento(nombre, severidad, es_alarma), candados(descripcion), "
+        "usuarios!eventos_operador_id_fkey(nombre)"
     ).in_("tipo_evento_id", ids).order("ocurrido_en", desc=True).limit(limite)
 
     if candado_id:

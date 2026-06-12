@@ -8,6 +8,12 @@ import { useRouter } from 'expo-router'
 import NfcManager, { NfcTech, Ndef } from 'react-native-nfc-manager'
 import api from '../src/api'
 
+// Oculta 3 caracteres intermedios del token por seguridad: EW3C7BU -> EW***BU
+function enmascararToken(token: string): string {
+  if (!token || token.length <= 4) return token || ''
+  return token.slice(0, 2) + '***' + token.slice(-2)
+}
+
 export default function HomeScreen() {
   const [nombre,      setNombre]      = useState('')
   const [tokens,      setTokens]      = useState([])
@@ -127,13 +133,21 @@ export default function HomeScreen() {
           <View style={s.tokenCard}>
             <Text style={s.tokenLabel}>TU TOKEN</Text>
             <Text style={s.tokenCandado}>🔒 {(tokenActivo as any).candados?.descripcion || 'Candado'}</Text>
-            <Text style={s.tokenValor}>{(tokenActivo as any).token}</Text>
-            <Text style={s.tokenSub}>Acerca una tarjeta NFC en blanco para grabar el token. Luego usa esa tarjeta en el lector.</Text>
+            <Text style={s.tokenValor}>{enmascararToken((tokenActivo as any).token)}</Text>
 
-            {!emulando ? (
-              <TouchableOpacity style={s.nfcBtn} onPress={grabarToken}>
-                <Text style={s.nfcBtnTxt}>📝  Grabar en tarjeta</Text>
-              </TouchableOpacity>
+            {(tokenActivo as any).estado === 'activo' ? (
+              // Token ya grabado en una tarjeta — no se vuelve a grabar
+              <View style={s.grabadoBox}>
+                <Text style={s.grabadoTxt}>✓ Tarjeta ya grabada</Text>
+                <Text style={s.tokenSub}>Usa tu tarjeta NFC en el lector. Si la perdiste, pide un nuevo token al administrador.</Text>
+              </View>
+            ) : !emulando ? (
+              <>
+                <Text style={s.tokenSub}>Acerca UNA SOLA VEZ una tarjeta NFC en blanco para grabar el token. Luego usa esa tarjeta en el lector.</Text>
+                <TouchableOpacity style={s.nfcBtn} onPress={grabarToken}>
+                  <Text style={s.nfcBtnTxt}>📝  Grabar en tarjeta</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <View style={s.emulandoBox}>
                 <Animated.View style={[s.onda, { transform: [{ scale: pulso }] }]}>
@@ -170,7 +184,7 @@ export default function HomeScreen() {
                 onPress={() => setTokenActivo(t)}>
                 <View>
                   <Text style={s.tiNombre}>{t.candados?.descripcion || 'Candado'}</Text>
-                  <Text style={s.tiVal}>{t.token}</Text>
+                  <Text style={s.tiVal}>{enmascararToken(t.token)}</Text>
                 </View>
                 <Text style={[s.badge, t.estado === 'activo' ? s.badgeActivo : s.badgePend]}>
                   {t.estado}
@@ -205,6 +219,9 @@ const s = StyleSheet.create({
 
   nfcBtn:       { backgroundColor: '#2563eb', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
   nfcBtnTxt:    { color: '#fff', fontWeight: 'bold', fontSize: 18 },
+
+  grabadoBox:   { alignItems: 'center', paddingVertical: 8, backgroundColor: '#064e3b', borderRadius: 12, padding: 16 },
+  grabadoTxt:   { color: '#6ee7b7', fontSize: 16, fontWeight: 'bold', marginBottom: 8 },
 
   emulandoBox:  { alignItems: 'center', paddingVertical: 8 },
   onda:         { backgroundColor: '#1d4ed8', width: 84, height: 84, borderRadius: 42, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
