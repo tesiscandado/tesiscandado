@@ -7,9 +7,15 @@ router = APIRouter()
 
 @router.get("/accesos")
 def registro_accesos(limite: int = 100, candado_id: Optional[int] = None):
+    # Solo eventos de intento de acceso (exitoso o denegado)
+    tipos = supabase.table("tipos_evento").select("id").in_(
+        "codigo", ["apertura_ok", "apertura_denegada", "intento_uid_invalido"]
+    ).execute()
+    ids = [t["id"] for t in tipos.data] if tipos.data else []
+
     query = supabase.table("eventos").select(
-        "id, ocurrido_en, tipos_evento(nombre, severidad, es_alarma), candados(descripcion)"
-    ).order("ocurrido_en", desc=True).limit(limite)
+        "id, ocurrido_en, tipos_evento(nombre, severidad, es_alarma), candados(descripcion), credenciales(uid_nfc)"
+    ).in_("tipo_evento_id", ids).order("ocurrido_en", desc=True).limit(limite)
 
     if candado_id:
         query = query.eq("candado_id", candado_id)
