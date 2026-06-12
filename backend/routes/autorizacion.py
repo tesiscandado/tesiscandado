@@ -128,8 +128,11 @@ def crear_token_app(data: TokenAppInput):
     """Token dinámico — generado para operador que usa emulación NFC desde celular"""
     admin = supabase.table("usuarios").select("id").eq("rol_id", 1).single().execute()
 
-    # Generar token único
-    token = "TK-" + secrets.token_hex(6).upper()
+    # Generar token único de 7 caracteres (cabe en el bloque 4 del tag)
+    alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    token = "".join(secrets.choice(alfabeto) for _ in range(7))
+    while supabase.table("tokens_sincronizacion").select("id").eq("token", token).execute().data:
+        token = "".join(secrets.choice(alfabeto) for _ in range(7))
 
     res = supabase.table("tokens_sincronizacion").insert({
         "candado_id":   data.candado_id,
