@@ -16,14 +16,14 @@ def validar_token(data: ValidarTokenInput):
     res = (
         supabase.table("tokens_sincronizacion")
         .select("id, estado, candado_id, candados(descripcion)")
-        .eq("token", data.token)
-        .single()
+        .eq("token", data.token.strip())
+        .limit(1)
         .execute()
     )
     if not res.data:
         return {"acceso": False, "mensaje": "Token no reconocido"}
 
-    token = res.data
+    token = res.data[0]
     if token["estado"] != "activo":
         return {"acceso": False, "mensaje": f"Token {token['estado']}"}
 
