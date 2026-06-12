@@ -105,8 +105,13 @@ def listar_tokens():
 @router.post("/tokens/fisico")
 def crear_token_fisico(data: TokenFisicoInput):
     """Token estático — texto guardado en bloque 4 del tag RFID físico"""
+    # Normalizar: mayúsculas, sin espacios, exactamente 7 caracteres alfanuméricos
+    token = data.token.strip().upper()
+    if len(token) != 7 or not token.isalnum():
+        raise HTTPException(status_code=400, detail="El token debe tener 7 caracteres alfanuméricos")
+
     # Verificar que no exista ese token ya
-    existe = supabase.table("tokens_sincronizacion").select("id").eq("token", data.token).execute()
+    existe = supabase.table("tokens_sincronizacion").select("id").eq("token", token).execute()
     if existe.data:
         raise HTTPException(status_code=400, detail="Ese token ya está registrado")
 
@@ -114,7 +119,7 @@ def crear_token_fisico(data: TokenFisicoInput):
 
     res = supabase.table("tokens_sincronizacion").insert({
         "candado_id":   data.candado_id,
-        "token":        data.token,
+        "token":        token,
         "etiqueta":     data.etiqueta,
         "tipo":         "rfid_fisico",
         "estado":       "activo",
@@ -163,8 +168,11 @@ def eliminar_token(id: int):
 
 @router.get("/tokens/operador/{operador_id}")
 def token_del_operador(operador_id: int):
-    """Endpoint que usa la app móvil para obtener el token del operador"""
+    """Endpoint que usa la app móvil para obtener los tokens del operador
+    (pendientes y activos, no expirados)"""
     res = supabase.table("tokens_sincronizacion").select(
-        "token, estado, etiqueta, candados(descripcion)"
-    ).eq("operador_id", operador_id).eq("tipo", "app_nfc").eq("estado", "activo").execute()
+        "id, token, estado, etiqueta, candados(descripcion)"
+    ).eq("operador_id", operador_id).eq("tipo", "app_nfc").in_(
+        "estado", ["pendiente", "activo"]
+    ).order("creado_en", desc=True).execute()
     return res.data

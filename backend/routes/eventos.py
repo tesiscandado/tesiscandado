@@ -16,7 +16,7 @@ def validar_token(data: ValidarTokenInput):
     res = (
         supabase.table("tokens_sincronizacion")
         .select("id, estado, candado_id, candados(descripcion)")
-        .eq("token", data.token.strip())
+        .eq("token", data.token.strip().upper())
         .limit(1)
         .execute()
     )

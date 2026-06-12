@@ -21,6 +21,13 @@ export default function Autorizaciones() {
   const [formFisico, setFormFisico] = useState({ candado_id: '', etiqueta: '', token: '' })
   const [formApp, setFormApp]       = useState({ candado_id: '', operador_id: '' })
 
+  const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  function generarToken() {
+    let t = ''
+    for (let i = 0; i < 7; i++) t += ALFABETO[Math.floor(Math.random() * ALFABETO.length)]
+    setFormFisico(f => ({ ...f, token: t }))
+  }
+
   useEffect(() => {
     cargarTokens()
     api.get('/candados/').then(r => setCandados(r.data))
@@ -94,14 +101,24 @@ export default function Autorizaciones() {
       {tab === 'fisico' && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
           <h3 className="text-white font-semibold mb-1">Registrar token de tarjeta física</h3>
-          <p className="text-gray-500 text-xs mb-4">El token es el texto guardado en el bloque 4 del tag RFID</p>
+          <p className="text-gray-500 text-xs mb-4">El token es el texto de 7 caracteres guardado en el bloque 4 del tag RFID</p>
           <form onSubmit={handleFisico} className="flex flex-col gap-3">
             <select value={formFisico.candado_id} onChange={e => setFormFisico({ ...formFisico, candado_id: e.target.value })} className={inputCls} required>
               <option value="">Seleccionar candado</option>
               {candados.map(c => <option key={c.id} value={c.id}>{c.descripcion || c.codigo_dispositivo}</option>)}
             </select>
             <input placeholder="Etiqueta (ej: Tarjeta Portón Principal)" value={formFisico.etiqueta} onChange={e => setFormFisico({ ...formFisico, etiqueta: e.target.value })} className={inputCls} required />
-            <input placeholder="Token (texto del bloque 4, ej: yggfgjj)" value={formFisico.token} onChange={e => setFormFisico({ ...formFisico, token: e.target.value })} className={inputCls} required />
+            <div className="flex gap-2">
+              <input
+                placeholder="Token (7 caracteres, ej: ABC1234)"
+                value={formFisico.token}
+                onChange={e => setFormFisico({ ...formFisico, token: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7) })}
+                className={`${inputCls} font-mono tracking-widest`}
+                maxLength={7}
+                required
+              />
+              <button type="button" onClick={generarToken} className={`${btnCls} bg-gray-700 hover:bg-gray-600 text-white whitespace-nowrap`}>🎲 Generar</button>
+            </div>
             {msg && <p className="text-sm text-blue-400">{msg}</p>}
             <button type="submit" className={`${btnCls} bg-blue-600 hover:bg-blue-500 text-white`}>Registrar token físico</button>
           </form>
@@ -112,7 +129,7 @@ export default function Autorizaciones() {
       {tab === 'app' && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
           <h3 className="text-white font-semibold mb-1">Generar token para operador</h3>
-          <p className="text-gray-500 text-xs mb-4">Se genera un token dinámico y se asigna al operador para usar desde su app</p>
+          <p className="text-gray-500 text-xs mb-4">Se genera un token de 7 caracteres y se asigna al operador. Desde su app, el operador lo graba en una tarjeta NFC en blanco para usarla en el lector.</p>
           <form onSubmit={handleApp} className="flex flex-col gap-3">
             <select value={formApp.candado_id} onChange={e => setFormApp({ ...formApp, candado_id: e.target.value })} className={inputCls} required>
               <option value="">Seleccionar candado</option>

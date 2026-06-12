@@ -45,7 +45,9 @@ export default function HomeScreen() {
       setNombre(nombre || '')
       const res = await api.get(`/autorizacion/tokens/operador/${id}`)
       setTokens(res.data)
-      const activo = res.data.find((t: any) => t.estado === 'activo') || res.data[0] || null
+      const activo = res.data.find((t: any) => t.estado === 'activo')
+        || res.data.find((t: any) => t.estado === 'pendiente')
+        || res.data[0] || null
       setTokenActivo(activo)
     } catch {
       Alert.alert('Error', 'No se pudo cargar el token. Verifica tu conexión.')
@@ -54,9 +56,9 @@ export default function HomeScreen() {
     }
   }
 
-  async function emularNFC() {
+  async function grabarToken() {
     if (!tokenActivo) {
-      Alert.alert('Sin token', 'No tienes un token activo asignado.\nPide al administrador que te genere uno.')
+      Alert.alert('Sin token', 'No tienes un token asignado.\nPide al administrador que te genere uno.')
       return
     }
     try {
@@ -74,10 +76,17 @@ export default function HomeScreen() {
       await NfcManager.requestTechnology(NfcTech.Ndef)
       const bytes = Ndef.encodeMessage([Ndef.textRecord((tokenActivo as any).token)])
       await NfcManager.ndefHandler.writeNdefMessage(bytes)
-      Alert.alert('✅ Listo', 'Token enviado al lector')
+
+      // Marcar el token como activo en el backend tras grabarlo
+      try {
+        await api.patch(`/autorizacion/tokens/${(tokenActivo as any).id}/estado?estado=activo`)
+      } catch {}
+
+      Alert.alert('✅ Tarjeta grabada', `El token quedó guardado en la tarjeta.\nYa puedes usarla en el lector.`)
+      cargarDatos()
     } catch (err: any) {
       if (err?.message?.includes('cancelled')) return
-      Alert.alert('Error NFC', 'No se pudo emular el NFC. Verifica que el NFC esté activo.')
+      Alert.alert('Error NFC', 'No se pudo grabar la tarjeta. Acerca un tag NFC en blanco e intenta de nuevo.')
     } finally {
       NfcManager.cancelTechnologyRequest().catch(() => {})
       setEmulando(false)
@@ -116,21 +125,21 @@ export default function HomeScreen() {
         {/* Card token */}
         {tokenActivo ? (
           <View style={s.tokenCard}>
-            <Text style={s.tokenLabel}>TOKEN ACTIVO</Text>
+            <Text style={s.tokenLabel}>TU TOKEN</Text>
             <Text style={s.tokenCandado}>🔒 {(tokenActivo as any).candados?.descripcion || 'Candado'}</Text>
             <Text style={s.tokenValor}>{(tokenActivo as any).token}</Text>
-            <Text style={s.tokenSub}>Acerca tu celular al lector RFID</Text>
+            <Text style={s.tokenSub}>Acerca una tarjeta NFC en blanco para grabar el token. Luego usa esa tarjeta en el lector.</Text>
 
             {!emulando ? (
-              <TouchableOpacity style={s.nfcBtn} onPress={emularNFC}>
-                <Text style={s.nfcBtnTxt}>📡  Emular NFC</Text>
+              <TouchableOpacity style={s.nfcBtn} onPress={grabarToken}>
+                <Text style={s.nfcBtnTxt}>📝  Grabar en tarjeta</Text>
               </TouchableOpacity>
             ) : (
               <View style={s.emulandoBox}>
                 <Animated.View style={[s.onda, { transform: [{ scale: pulso }] }]}>
-                  <Text style={{ fontSize: 38 }}>📡</Text>
+                  <Text style={{ fontSize: 38 }}>📝</Text>
                 </Animated.View>
-                <Text style={s.emulandoTxt}>Acerca el celular al lector...</Text>
+                <Text style={s.emulandoTxt}>Acerca la tarjeta en blanco...</Text>
                 <TouchableOpacity style={s.cancelBtn} onPress={() => {
                   NfcManager.cancelTechnologyRequest().catch(() => {})
                   setEmulando(false)
