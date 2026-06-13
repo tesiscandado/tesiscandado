@@ -269,6 +269,10 @@ void setup() {
   Serial.println(modem.isGprsConnected() ? "OK" : "FALLO");
   modem.enableGPS();
 
+  // Lectura inicial de bateria (AT+CBC del SIM808)
+  ultBat = modem.getBattPercent();
+  Serial.printf("Bateria inicial: %d%%\n", ultBat);
+
   inicioVentana = millis();
   ultimoPost = millis() - INTERVALO_POST;
 
