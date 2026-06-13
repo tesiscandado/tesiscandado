@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { ConfirmModal } from '../components/Modal'
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
@@ -9,6 +10,7 @@ export default function Operadores() {
   const [form, setForm] = useState({ usuario: '', password: '', nombre: '', telefono: '', cargo: '' })
   const [editId, setEditId] = useState(null)
   const [msg, setMsg] = useState('')
+  const [confirmar, setConfirmar] = useState(null)
 
   useEffect(() => { cargar() }, [])
 
@@ -47,10 +49,15 @@ export default function Operadores() {
     cargar()
   }
 
-  async function eliminar(id) {
-    if (!confirm('¿Eliminar operador?')) return
-    await api.delete(`/autorizacion/operadores/${id}`)
-    cargar()
+  function eliminar(id) {
+    setConfirmar({
+      title: 'Eliminar operador',
+      mensaje: '¿Seguro que deseas eliminar este operador?\n\nSe borrará del sistema de forma permanente.',
+      onConfirm: async () => {
+        await api.delete(`/autorizacion/operadores/${id}`)
+        cargar()
+      },
+    })
   }
 
   return (
@@ -114,6 +121,16 @@ export default function Operadores() {
         ))}
         {operadores.length === 0 && <p className="text-gray-500 text-sm">Sin operadores registrados</p>}
       </div>
+
+      <ConfirmModal
+        open={!!confirmar}
+        title={confirmar?.title}
+        mensaje={confirmar?.mensaje}
+        confirmText="Eliminar"
+        danger
+        onConfirm={confirmar?.onConfirm || (() => {})}
+        onClose={() => setConfirmar(null)}
+      />
     </div>
   )
 }

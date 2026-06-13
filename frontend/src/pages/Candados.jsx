@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { ConfirmModal, MapaModal } from '../components/Modal'
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
@@ -18,6 +19,8 @@ export default function Candados() {
   const [msg, setMsg]                 = useState('')
   const [expandido, setExpandido]     = useState(null)
   const [alertas, setAlertas]         = useState({})
+  const [mapa, setMapa]               = useState(null)   // candado a localizar
+  const [confirmar, setConfirmar]     = useState(null)   // { mensaje, onConfirm, ... }
 
   useEffect(() => { cargar() }, [])
 
@@ -44,10 +47,17 @@ export default function Candados() {
     }
   }
 
-  async function eliminar(id) {
-    if (!confirm('¿Eliminar este candado?')) return
-    await api.delete(`/candados/${id}`)
-    cargar()
+  function eliminar(id) {
+    setConfirmar({
+      title: 'Eliminar candado',
+      mensaje: '¿Seguro que deseas eliminar este candado?\n\nSe borrará del sistema de forma permanente.',
+      confirmText: 'Eliminar',
+      danger: true,
+      onConfirm: async () => {
+        await api.delete(`/candados/${id}`)
+        cargar()
+      },
+    })
   }
 
   async function verAlertas(id) {
@@ -59,16 +69,26 @@ export default function Candados() {
     }
   }
 
-  async function atender(alarmaId, candadoId) {
-    if (!confirm('¿Marcar esta alerta como atendida?\n\nQuedará registrada como revisada con la fecha y hora actual.')) return
-    try {
-      await api.patch(`/candados/alarmas/${alarmaId}/atender`)
-      const res = await api.get(`/candados/${candadoId}/alertas`)
-      setAlertas(prev => ({ ...prev, [candadoId]: res.data }))
-      cargar()
-    } catch {
-      alert('No se pudo atender la alerta. Intenta de nuevo.')
-    }
+  function atender(alarmaId, candadoId) {
+    setConfirmar({
+      title: 'Atender alerta',
+      mensaje: '¿Marcar esta alerta como atendida?\n\nQuedará registrada como revisada con la fecha y hora actual.',
+      confirmText: 'Atender',
+      danger: false,
+      onConfirm: async () => {
+        try {
+          await api.patch(`/candados/alarmas/${alarmaId}/atender`)
+          const res = await api.get(`/candados/${candadoId}/alertas`)
+          setAlertas(prev => ({ ...prev, [candadoId]: res.data }))
+          cargar()
+        } catch {
+          setConfirmar({
+            title: 'Error', mensaje: 'No se pudo atender la alerta. Intenta de nuevo.',
+            confirmText: 'Entendido', onConfirm: () => {},
+          })
+        }
+      },
+    })
   }
 
   return (
@@ -145,6 +165,9 @@ export default function Candados() {
                 <button onClick={() => { setEditId(c.id); setForm({ codigo_dispositivo: c.codigo_dispositivo, descripcion: c.descripcion ?? '', sim_numero: c.sim_numero ?? '' }); setMsg('') }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 text-white text-xs`}>
                   Editar
                 </button>
+                <button onClick={() => setMapa(c)} className={`${btnCls} bg-blue-900/50 hover:bg-blue-900 text-blue-300 text-xs`}>
+                  📍 Localizar
+                </button>
                 <button onClick={() => verAlertas(c.id)} className={`${btnCls} text-xs ${expandido === c.id ? 'bg-red-800 text-red-200' : 'bg-red-900/50 hover:bg-red-900 text-red-300'}`}>
                   {expandido === c.id ? 'Ocultar alertas ▲' : '🔔 Ver alertas ▼'}
                 </button>
@@ -196,6 +219,26 @@ export default function Candados() {
         ))}
         {candados.length === 0 && <p className="text-gray-500 text-sm">Sin candados registrados</p>}
       </div>
+
+      {/* Modal de ubicación */}
+      <MapaModal
+        open={!!mapa}
+        onClose={() => setMapa(null)}
+        titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`}
+        lat={mapa?.latitud}
+        lon={mapa?.longitud}
+      />
+
+      {/* Modal de confirmación */}
+      <ConfirmModal
+        open={!!confirmar}
+        title={confirmar?.title}
+        mensaje={confirmar?.mensaje}
+        confirmText={confirmar?.confirmText}
+        danger={confirmar?.danger}
+        onConfirm={confirmar?.onConfirm || (() => {})}
+        onClose={() => setConfirmar(null)}
+      />
     </div>
   )
 }

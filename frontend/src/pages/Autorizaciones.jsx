@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { ConfirmModal } from '../components/Modal'
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
@@ -17,6 +18,7 @@ export default function Autorizaciones() {
   const [candados, setCandados] = useState([])
   const [operadores, setOperadores] = useState([])
   const [msg, setMsg]           = useState('')
+  const [confirmar, setConfirmar] = useState(null)
 
   // Forms
   const [formFisico, setFormFisico] = useState({ candado_id: '', etiqueta: '', token: '' })
@@ -89,10 +91,15 @@ export default function Autorizaciones() {
     cargarTokens()
   }
 
-  async function eliminarToken(id) {
-    if (!confirm('¿Eliminar este token?')) return
-    await api.delete(`/autorizacion/tokens/${id}`)
-    cargarTokens()
+  function eliminarToken(id) {
+    setConfirmar({
+      title: 'Eliminar token',
+      mensaje: '¿Seguro que deseas eliminar este token?',
+      onConfirm: async () => {
+        await api.delete(`/autorizacion/tokens/${id}`)
+        cargarTokens()
+      },
+    })
   }
 
   const tabCls = (t) => `${btnCls} ${tab === t ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`
@@ -242,6 +249,16 @@ export default function Autorizaciones() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal
+        open={!!confirmar}
+        title={confirmar?.title}
+        mensaje={confirmar?.mensaje}
+        confirmText="Eliminar"
+        danger
+        onConfirm={confirmar?.onConfirm || (() => {})}
+        onClose={() => setConfirmar(null)}
+      />
     </div>
   )
 }

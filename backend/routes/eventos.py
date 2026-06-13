@@ -78,6 +78,12 @@ class EventoInput(BaseModel):
 
 @router.post("/")
 def recibir_evento(evento: EventoInput):
+    # Los eventos de acceso (apertura_ok / apertura_denegada) los registra
+    # exclusivamente el endpoint /validar, que sí conoce el operador del token.
+    # Aquí se ignoran para evitar registros duplicados.
+    if evento.tipo_evento in ("apertura_ok", "apertura_denegada"):
+        return {"ok": True, "ignorado": "gestionado por /validar"}
+
     # 1. Buscar el candado por su código
     res_candado = (
         supabase.table("candados")

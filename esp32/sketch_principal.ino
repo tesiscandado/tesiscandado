@@ -1,3 +1,16 @@
+/*
+  CANDADO INTELIGENTE - Sketch principal ESP32
+  Integra: sensores (Reed, Hall, MPU6050), buzzer, lector RFID RC522,
+           WiFi (internet/HTTPS a Render) y SIM808 (solo GPS).
+
+  El ESP32 hace TODA la comunicacion por WiFi (HTTPS a Render).
+  El SIM808 se usa UNICAMENTE para obtener coordenadas GPS, que el
+  ESP32 lee por Serial2 y envia al backend por WiFi.
+
+  Libreria SIM808: TinyGSM (Library Manager -> "TinyGSM")
+*/
+
+#define TINY_GSM_MODEM_SIM808
 #include <Wire.h>
 #include <MPU6050.h>
 #include <WiFi.h>
@@ -5,15 +18,17 @@
 #include <ArduinoJson.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <TinyGsmClient.h>
 
 // -------------------------
 // CONFIGURACION
 // -------------------------
-#define WIFI_SSID   "Hey-CALERO"
-#define WIFI_PASS   "Maria1974"
-#define BACKEND_URL "https://tesiscandado.onrender.com/eventos/"
-#define VALIDAR_URL "https://tesiscandado.onrender.com/eventos/validar"
-#define CODIGO_DISP "ESP32-001"
+#define WIFI_SSID      "Hey-CALERO"
+#define WIFI_PASS      "Maria1974"
+#define BACKEND_URL    "https://tesiscandado.onrender.com/eventos/"
+#define VALIDAR_URL    "https://tesiscandado.onrender.com/eventos/validar"
+#define TELEMETRIA_URL "https://tesiscandado.onrender.com/candados/telemetria"
+#define CODIGO_DISP    "ESP32-001"
 
 // -------------------------
 // PINES RC522
@@ -30,13 +45,22 @@
 #define BUZZER_PIN   25
 
 // -------------------------
+// PINES SIM808 (UART Serial2)
+// -------------------------
+#define SIM_RX 16   // RX2 del ESP32 <- TXD del SIM808
+#define SIM_TX 17   // TX2 del ESP32 -> RXD del SIM808
+
+// -------------------------
 // OBJETOS
 // -------------------------
 MFRC522 rfid(SS_PIN, RST_PIN);
 MPU6050 mpu(0x69);
+TinyGsm modem(Serial2);
 
 MFRC522::MIFARE_Key keyNDEF;    // D3 F7 D3 F7 D3 F7
 MFRC522::MIFARE_Key keyFactory; // FF FF FF FF FF FF
+
+bool gpsListo = false;
 
 // -------------------------
 // VARIABLES ALARMA
@@ -64,6 +88,13 @@ unsigned long ultimaLectura = 0;
 const unsigned long COOLDOWN_RFID = 3000;
 
 // -------------------------
+// TELEMETRIA
+// -------------------------
+unsigned long ultimaTelemetria = 0;
+const unsigned long INTERVALO_TELEMETRIA = 60000; // cada 60s
+float ultLat = 0, ultLon = 0;
+
+// -------------------------
 // ENVIAR EVENTO AL BACKEND
 // -------------------------
 void enviarEvento(const char* tipo_evento, const char* uid_nfc = nullptr) {
@@ -75,10 +106,37 @@ void enviarEvento(const char* tipo_evento, const char* uid_nfc = nullptr) {
   doc["codigo_dispositivo"] = CODIGO_DISP;
   doc["tipo_evento"]        = tipo_evento;
   if (uid_nfc) doc["uid_nfc"] = uid_nfc;
+  if (ultLat != 0 && ultLon != 0) {
+    doc["latitud"]  = ultLat;
+    doc["longitud"] = ultLon;
+  }
   String body;
   serializeJson(doc, body);
   int code = http.POST(body);
   Serial.printf("   -> Backend: HTTP %d\n", code);
+  http.end();
+}
+
+// -------------------------
+// ENVIAR TELEMETRIA (coordenadas + estado) POR WIFI
+// -------------------------
+void enviarTelemetria(float lat, float lon) {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  http.begin(TELEMETRIA_URL);
+  http.addHeader("Content-Type", "application/json");
+  StaticJsonDocument<256> doc;
+  doc["codigo_dispositivo"] = CODIGO_DISP;
+  if (lat != 0 && lon != 0) {
+    doc["latitud"]  = lat;
+    doc["longitud"] = lon;
+  }
+  doc["estado_gsm"]  = gpsListo ? "ok" : "sin_fix";
+  doc["estado_rfid"] = "ok";
+  String body;
+  serializeJson(doc, body);
+  int code = http.POST(body);
+  Serial.printf("   -> Telemetria: HTTP %d\n", code);
   http.end();
 }
 
@@ -103,8 +161,7 @@ void validarToken(String token) {
     bool acceso     = res["acceso"];
     const char* msg = res["mensaje"];
     Serial.printf("   -> %s\n", msg);
-    // Nota: el backend (/validar) ya registra el evento de acceso con el operador.
-    // Aqui solo se da la senal sonora segun el resultado.
+    // El backend (/validar) ya registra el evento con el operador.
     if (acceso) {
       ledcWriteTone(BUZZER_PIN, 1000); delay(200);
       ledcWriteTone(BUZZER_PIN, 0);   delay(100);
@@ -131,33 +188,22 @@ bool autenticarBloque(byte bloque) {
 }
 
 // -------------------------
-// LEER NDEF DEL TAG (solo bloque 4 - texto corto)
-// Soporta Mifare Classic (tag fisico) e ISO 14443-4 (celular -> UID)
+// LEER NDEF DEL TAG (solo bloque 4)
 // -------------------------
 String leerNDEF() {
   String texto = "";
-
   MFRC522::PICC_Type tipo = rfid.PICC_GetType(rfid.uid.sak);
   Serial.printf("Tipo tag: %s\n", rfid.PICC_GetTypeName(tipo));
 
-  // ---- MIFARE CLASSIC (tag fisico) ----
   if (tipo == MFRC522::PICC_TYPE_MIFARE_MINI ||
       tipo == MFRC522::PICC_TYPE_MIFARE_1K   ||
       tipo == MFRC522::PICC_TYPE_MIFARE_4K) {
 
-    if (!autenticarBloque(4)) {
-      Serial.println("Auth fallida bloque 4");
-      return "";
-    }
-
-    byte buffer[18];
-    byte size = sizeof(buffer);
+    if (!autenticarBloque(4)) { Serial.println("Auth fallida bloque 4"); return ""; }
+    byte buffer[18]; byte size = sizeof(buffer);
     if (rfid.MIFARE_Read(4, buffer, &size) != MFRC522::STATUS_OK) {
-      Serial.println("Lectura fallida bloque 4");
-      return "";
+      Serial.println("Lectura fallida bloque 4"); return "";
     }
-
-    // Buscar marcador NDEF Text Record (0x54) y saltar idioma
     for (byte i = 0; i < 14; i++) {
       if (buffer[i] == 0x54) {
         byte langLen = buffer[i + 1] & 0x3F;
@@ -169,10 +215,7 @@ String leerNDEF() {
         break;
       }
     }
-  }
-
-  // ---- ISO 14443-4 (celular NFC) -> usar UID como token ----
-  else {
+  } else {
     Serial.println("Tag ISO 14443-4 (celular NFC) - usando UID");
     String uid = "";
     for (byte i = 0; i < rfid.uid.size; i++) {
@@ -189,6 +232,23 @@ String leerNDEF() {
 }
 
 // -------------------------
+// LEER GPS DEL SIM808
+// -------------------------
+void actualizarGPS() {
+  float lat = 0, lon = 0, speed = 0, alt = 0;
+  int vsat = 0, usat = 0;
+  if (modem.getGPS(&lat, &lon, &speed, &alt, &vsat, &usat) && lat != 0 && lon != 0) {
+    ultLat = lat;
+    ultLon = lon;
+    gpsListo = true;
+    Serial.printf("GPS fix: %.6f, %.6f (sat %d)\n", lat, lon, usat);
+  } else {
+    gpsListo = false;
+    Serial.println("GPS sin fix todavia");
+  }
+}
+
+// -------------------------
 // SETUP
 // -------------------------
 void setup() {
@@ -201,6 +261,7 @@ void setup() {
   keyNDEF.keyByte[4] = 0xD3; keyNDEF.keyByte[5] = 0xF7;
   for (byte i = 0; i < 6; i++) keyFactory.keyByte[i] = 0xFF;
 
+  // ---- WiFi ----
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("Conectando WiFi");
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
@@ -211,6 +272,7 @@ void setup() {
   delay(500);
   valorBase = analogRead(HALL_ANALOG);
 
+  // ---- MPU6050 ----
   Wire.begin(21, 22);
   mpu.initialize();
   if (!mpu.testConnection()) {
@@ -220,6 +282,7 @@ void setup() {
     mpu.getAcceleration(&axAnt, &ayAnt, &azAnt);
   }
 
+  // ---- RC522 ----
   SPI.begin();
   rfid.PCD_Init();
   rfid.PCD_SetAntennaGain(rfid.RxGain_max);
@@ -227,7 +290,16 @@ void setup() {
   Serial.printf("RC522 version: 0x%02X\n", v);
   Serial.println(v == 0x00 || v == 0xFF ? "ERROR: RC522 no responde" : "RC522 OK");
 
-  inicioVentana = millis();
+  // ---- SIM808 (solo GPS) ----
+  Serial2.begin(9600, SERIAL_8N1, SIM_RX, SIM_TX);
+  delay(3000);
+  Serial.println("Inicializando SIM808 (GPS)...");
+  modem.restart();
+  modem.enableGPS();
+  Serial.println("GPS encendido (coloca antena con vista al cielo).");
+
+  inicioVentana    = millis();
+  ultimaTelemetria = millis() - INTERVALO_TELEMETRIA; // primer envio inmediato
   Serial.println("Sistema completo listo");
 }
 
@@ -355,15 +427,25 @@ void loop() {
     ledcWriteTone(BUZZER_PIN, 0);
   }
 
+  // =====================
+  // TELEMETRIA GPS (cada 60s)
+  // =====================
+  if (millis() - ultimaTelemetria >= INTERVALO_TELEMETRIA) {
+    ultimaTelemetria = millis();
+    actualizarGPS();
+    enviarTelemetria(ultLat, ultLon);
+  }
+
   // LOG cada 5s
   static unsigned long ultimoLog = 0;
   if (millis() - ultimoLog >= 5000) {
     ultimoLog = millis();
-    Serial.printf("[STATUS] Reed=%s Hall=%s MPU=%s Sirena=%s\n",
+    Serial.printf("[STATUS] Reed=%s Hall=%s MPU=%s Sirena=%s GPS=%s\n",
       reedDetecta ? "OK":"ALERTA",
       hallDetecta ? "OK":"ALERTA",
       mpuAlerta   ? "ALERTA":"OK",
-      alarma      ? "SONANDO":"Silencio");
+      alarma      ? "SONANDO":"Silencio",
+      gpsListo    ? "FIX":"sin_fix");
   }
 
   delay(100);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { MapaModal } from '../components/Modal'
 
 const estadoColor = {
   cerrado:     'bg-green-500',
@@ -17,6 +18,7 @@ const estadoGeneral = {
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const [mapa, setMapa] = useState(null)
 
   async function cargar() {
     try {
@@ -81,6 +83,9 @@ export default function Dashboard() {
                   🔋 {c.nivel_bateria}%
                 </span>
               )}
+              <button onClick={() => setMapa(c)} className="text-xs px-2 py-1 rounded-full bg-blue-900/50 hover:bg-blue-900 text-blue-300">
+                📍 Localizar
+              </button>
             </div>
           ))}
         </div>
@@ -142,6 +147,14 @@ export default function Dashboard() {
           </table>
         </div>
       </section>
+
+      <MapaModal
+        open={!!mapa}
+        onClose={() => setMapa(null)}
+        titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`}
+        lat={mapa?.latitud}
+        lon={mapa?.longitud}
+      />
     </div>
   )
 }
