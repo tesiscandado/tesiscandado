@@ -25,6 +25,12 @@ class TelemetriaInput(BaseModel):
 # ── Candados ─────────────────────────────────────────────────
 @router.get("/")
 def listar_candados():
+    # Sincroniza con ThingSpeak antes de listar; nunca rompe la respuesta
+    try:
+        from routes.thingspeak import sync_thingspeak
+        sync_thingspeak()
+    except Exception:
+        pass
     res = supabase.table("candados").select("*").order("id").execute()
     return res.data
 

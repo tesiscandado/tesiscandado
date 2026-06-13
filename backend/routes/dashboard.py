@@ -7,6 +7,13 @@ router = APIRouter()
 
 @router.get("/")
 def resumen():
+    # Sincroniza con ThingSpeak (GPRS) antes de mostrar; nunca rompe el dashboard
+    try:
+        from routes.thingspeak import sync_thingspeak
+        sync_thingspeak()
+    except Exception:
+        pass
+
     candados = supabase.table("candados").select("*").execute()
     total_candados = len(candados.data)
     activos = [c for c in candados.data if c["ultima_conexion"] is not None]
