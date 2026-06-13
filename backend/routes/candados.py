@@ -12,6 +12,16 @@ class CandadoInput(BaseModel):
     sim_numero:         Optional[str] = None
 
 
+class TelemetriaInput(BaseModel):
+    codigo_dispositivo: str
+    latitud:        Optional[float] = None
+    longitud:       Optional[float] = None
+    nivel_bateria:  Optional[int]   = None
+    estado_gsm:     Optional[str]   = None
+    estado_rfid:    Optional[str]   = None
+    estado_solenoide: Optional[str] = None
+
+
 # ── Candados ─────────────────────────────────────────────────
 @router.get("/")
 def listar_candados():
@@ -47,6 +57,31 @@ def eliminar_candado(id: int):
     return {"ok": True}
 
 
+# ── Telemetría del dispositivo (SIM808: coordenadas, batería, GSM) ──
+@router.post("/telemetria")
+def recibir_telemetria(data: TelemetriaInput):
+    from datetime import datetime, timezone
+    cambios = {
+        "ultima_conexion": datetime.now(timezone.utc).isoformat(),
+    }
+    if data.latitud is not None:        cambios["latitud"] = data.latitud
+    if data.longitud is not None:       cambios["longitud"] = data.longitud
+    if data.nivel_bateria is not None:  cambios["nivel_bateria"] = data.nivel_bateria
+    if data.estado_gsm is not None:     cambios["estado_gsm"] = data.estado_gsm
+    if data.estado_rfid is not None:    cambios["estado_rfid"] = data.estado_rfid
+    if data.estado_solenoide is not None: cambios["estado_solenoide"] = data.estado_solenoide
+
+    res = (
+        supabase.table("candados")
+        .update(cambios)
+        .eq("codigo_dispositivo", data.codigo_dispositivo)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Dispositivo no registrado")
+    return {"ok": True}
+
+
 # ── Alertas por candado ──────────────────────────────────────
 @router.get("/{id}/alertas")
 def alertas_por_candado(id: int):
@@ -63,10 +98,12 @@ def alertas_por_candado(id: int):
 @router.patch("/alarmas/{id}/atender")
 def atender_alarma(id: int):
     from datetime import datetime, timezone
-    admin = supabase.table("usuarios").select("id").eq("usuario", "admin").single().execute()
+    # Tomar el primer administrador (rol_id = 1); si no hay, dejar nulo
+    admin = supabase.table("usuarios").select("id").eq("rol_id", 1).limit(1).execute()
+    admin_id = admin.data[0]["id"] if admin.data else None
     res = supabase.table("alarmas").update({
         "atendida":     True,
-        "atendido_por": admin.data["id"],
+        "atendido_por": admin_id,
         "atendida_en":  datetime.now(timezone.utc).isoformat(),
     }).eq("id", id).execute()
     if not res.data:

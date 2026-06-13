@@ -60,9 +60,15 @@ export default function Candados() {
   }
 
   async function atender(alarmaId, candadoId) {
-    await api.patch(`/candados/alarmas/${alarmaId}/atender`)
-    const res = await api.get(`/candados/${candadoId}/alertas`)
-    setAlertas(prev => ({ ...prev, [candadoId]: res.data }))
+    if (!confirm('¿Marcar esta alerta como atendida?\n\nQuedará registrada como revisada con la fecha y hora actual.')) return
+    try {
+      await api.patch(`/candados/alarmas/${alarmaId}/atender`)
+      const res = await api.get(`/candados/${candadoId}/alertas`)
+      setAlertas(prev => ({ ...prev, [candadoId]: res.data }))
+      cargar()
+    } catch {
+      alert('No se pudo atender la alerta. Intenta de nuevo.')
+    }
   }
 
   return (
@@ -105,6 +111,16 @@ export default function Candados() {
                 <p className="text-gray-600 text-xs mt-1">
                   Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}
                 </p>
+                {c.latitud != null && c.longitud != null && (
+                  <a
+                    href={`https://www.google.com/maps?q=${c.latitud},${c.longitud}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 text-xs mt-1 inline-flex items-center gap-1"
+                  >
+                    📍 {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)} — ver en mapa
+                  </a>
+                )}
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
