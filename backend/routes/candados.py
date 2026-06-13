@@ -82,6 +82,38 @@ def recibir_telemetria(data: TelemetriaInput):
     return {"ok": True}
 
 
+# ── Solicitud de ubicación on-demand ─────────────────────────
+@router.post("/{id}/solicitar-ubicacion")
+def solicitar_ubicacion(id: int):
+    """La página pide al dispositivo que reporte su ubicación actual.
+    Se marca un flag que el ESP32 consulta y al verlo envía sus coordenadas."""
+    res = supabase.table("candados").update(
+        {"solicitar_ubicacion": True}
+    ).eq("id", id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Candado no encontrado")
+    return {"ok": True}
+
+
+@router.get("/comando/{codigo}")
+def consultar_comando(codigo: str):
+    """El ESP32 consulta si hay una orden pendiente (ej: enviar ubicación).
+    Al consultarla, el flag se consume (se pone en false)."""
+    res = supabase.table("candados").select(
+        "id, solicitar_ubicacion"
+    ).eq("codigo_dispositivo", codigo).limit(1).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Dispositivo no registrado")
+
+    candado = res.data[0]
+    pedir = bool(candado.get("solicitar_ubicacion"))
+    if pedir:
+        supabase.table("candados").update(
+            {"solicitar_ubicacion": False}
+        ).eq("id", candado["id"]).execute()
+    return {"solicitar_ubicacion": pedir}
+
+
 # ── Alertas por candado ──────────────────────────────────────
 @router.get("/{id}/alertas")
 def alertas_por_candado(id: int):

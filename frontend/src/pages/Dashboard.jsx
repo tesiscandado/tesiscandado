@@ -22,6 +22,8 @@ export default function Dashboard() {
 
   async function cargar() {
     try {
+      // Trae los datos nuevos del candado desde ThingSpeak (GPRS) antes de mostrar
+      api.get('/thingspeak/sync').catch(() => {})
       const res = await api.get('/dashboard/')
       setData(res.data)
     } catch {

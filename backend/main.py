@@ -21,7 +21,7 @@ supabase = create_client(
     os.getenv("SUPABASE_SECRET_KEY"),
 )
 
-from routes import eventos, auth, dashboard, autorizacion, candados, registros
+from routes import eventos, auth, dashboard, autorizacion, candados, registros, thingspeak
 
 app.include_router(auth.router,         prefix="/auth",         tags=["Auth"])
 app.include_router(eventos.router,      prefix="/eventos",      tags=["Eventos"])
@@ -29,6 +29,7 @@ app.include_router(dashboard.router,    prefix="/dashboard",    tags=["Dashboard
 app.include_router(autorizacion.router, prefix="/autorizacion", tags=["Autorización"])
 app.include_router(candados.router,     prefix="/candados",     tags=["Candados"])
 app.include_router(registros.router,    prefix="/registros",    tags=["Registros"])
+app.include_router(thingspeak.router,   prefix="/thingspeak",   tags=["ThingSpeak"])
 
 
 @app.get("/")
