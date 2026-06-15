@@ -46,7 +46,14 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define HALL_ANALOG 36
 #define HALL_DIGITAL 39
 #define BUZZER_PIN 25
-#define SOLENOID_PIN 13   // relay del solenoide
+#define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
+#define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
+
+// El XY-J02 suele ser ACTIVO EN BAJO (IN=LOW -> relay ON).
+// Si tu modulo activa al reves, cambia a true.
+#define RELAY_ACTIVO_ALTO false
+#define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
+#define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
 // -------------------------
 // OBJETOS
@@ -149,7 +156,7 @@ void reportar(int evento, int salud, const char* status) {
 // SOLENOIDE
 // -------------------------
 void abrirSolenoide() {
-  digitalWrite(SOLENOID_PIN, HIGH);
+  digitalWrite(RELAY_PIN, RELAY_ON);   // activa el relay -> solenoide
   solenoideAbierto = true;
   // Confirmar apertura con el reed (debe dejar de detectar al abrir)
   unsigned long t = millis();
@@ -164,7 +171,7 @@ void abrirSolenoide() {
     reportar(0, 3, "Solenoide no confirmo apertura");
   }
   delay(3000);
-  digitalWrite(SOLENOID_PIN, LOW);
+  digitalWrite(RELAY_PIN, RELAY_OFF);  // cierra el relay
   solenoideAbierto = false;
 }
 
@@ -234,8 +241,9 @@ void setup() {
   Serial.begin(115200);
   pinMode(REED_PIN, INPUT_PULLUP);
   pinMode(HALL_DIGITAL, INPUT);
-  pinMode(SOLENOID_PIN, OUTPUT);
-  digitalWrite(SOLENOID_PIN, LOW);
+  pinMode(TOUCH_PIN, INPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, RELAY_OFF);   // relay apagado al iniciar
 
   keyNDEF.keyByte[0]=0xD3; keyNDEF.keyByte[1]=0xF7; keyNDEF.keyByte[2]=0xD3;
   keyNDEF.keyByte[3]=0xF7; keyNDEF.keyByte[4]=0xD3; keyNDEF.keyByte[5]=0xF7;
@@ -257,6 +265,7 @@ void setup() {
   rfid.PCD_SetAntennaGain(rfid.RxGain_max);
   byte v = rfid.PCD_ReadRegister(MFRC522::VersionReg);
   if (v == 0x00 || v == 0xFF) { falloRFID = true; Serial.println("FALLO RC522"); }
+  rfid.PCD_AntennaOff();   // antena apagada hasta que se toque el TTP223 (ahorro)
 
   // SIM808: GPRS + GPS
   Serial2.begin(9600, SERIAL_8N1, SIM_RX, SIM_TX);
@@ -288,8 +297,13 @@ void setup() {
 // -------------------------
 void loop() {
 
-  // ===== RFID (validacion LOCAL) =====
-  if (millis() - ultimaLectura > COOLDOWN_RFID) {
+  // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
+  bool tocando = (digitalRead(TOUCH_PIN) == HIGH);
+  static bool antenaOn = false;
+  if (tocando && !antenaOn) { rfid.PCD_AntennaOn(); antenaOn = true; }
+  if (!tocando && antenaOn) { rfid.PCD_AntennaOff(); antenaOn = false; }
+
+  if (tocando && millis() - ultimaLectura > COOLDOWN_RFID) {
     if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
       ultimaLectura = millis();
       String token = leerToken();
