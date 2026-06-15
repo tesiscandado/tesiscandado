@@ -29,7 +29,7 @@ export default function Landing() {
       {/* Top bar */}
       <header className="relative z-10 flex items-center justify-between px-6 md:px-12 py-5">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}
-          className="flex items-center gap-2 font-semibold text-lg">
+          className="font-display flex items-center gap-2 font-semibold text-lg">
           <span className="w-9 h-9 rounded-xl grid place-items-center text-white"
             style={{ background: 'var(--accent-strong)' }}>🔒</span>
           Candado Inteligente
@@ -62,7 +62,7 @@ export default function Landing() {
               Seguridad IoT · Tesis 2026
             </motion.span>
             <motion.h1 variants={fade} initial="hidden" animate="show" custom={1}
-              className="text-4xl md:text-6xl font-bold leading-tight mb-5">
+              className="font-display text-4xl md:text-6xl font-bold leading-tight mb-5">
               Protege lo que importa,<br />
               <span style={{ color: 'var(--accent)' }}>desde cualquier lugar</span>
             </motion.h1>
@@ -97,7 +97,7 @@ export default function Landing() {
       <section id="features" className="px-6 md:px-12 py-20" style={{ background: 'var(--surface)' }}>
         <div className="max-w-6xl mx-auto">
           <motion.h2 variants={fade} initial="hidden" whileInView="show" viewport={{ once: true }}
-            className="text-3xl md:text-4xl font-bold text-center mb-3">
+            className="font-display text-3xl md:text-4xl font-bold text-center mb-3">
             Todo en un solo sistema
           </motion.h2>
           <motion.p variants={fade} initial="hidden" whileInView="show" viewport={{ once: true }} custom={1}
@@ -123,7 +123,7 @@ export default function Landing() {
       {/* Cómo funciona */}
       <section className="px-6 md:px-12 py-20 max-w-6xl mx-auto">
         <motion.h2 variants={fade} initial="hidden" whileInView="show" viewport={{ once: true }}
-          className="text-3xl md:text-4xl font-bold text-center mb-14">
+          className="font-display text-3xl md:text-4xl font-bold text-center mb-14">
           ¿Cómo funciona?
         </motion.h2>
         <div className="grid md:grid-cols-3 gap-6">
@@ -146,7 +146,7 @@ export default function Landing() {
           viewport={{ once: true }} transition={{ duration: 0.6 }}
           className="max-w-4xl mx-auto rounded-3xl p-12 text-center text-white"
           style={{ background: 'var(--accent-strong)' }}>
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">Empieza a monitorear ahora</h2>
+          <h2 className="font-display text-3xl md:text-4xl font-bold mb-4">Empieza a monitorear ahora</h2>
           <p className="mb-8 opacity-90">Entra al panel y controla tus candados en tiempo real.</p>
           <button onClick={() => navigate('/login')}
             className="px-8 py-3 rounded-xl font-semibold bg-white transition hover:opacity-90"

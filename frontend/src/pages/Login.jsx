@@ -55,7 +55,7 @@ export default function Login() {
           <span className="w-11 h-11 rounded-2xl grid place-items-center text-white text-xl"
             style={{ background: 'var(--accent-strong)' }}>🔒</span>
           <div>
-            <h1 className="text-xl font-bold leading-tight">Candado Inteligente</h1>
+            <h1 className="font-display text-xl font-bold leading-tight">Candado Inteligente</h1>
             <p className="text-sm" style={{ color: 'var(--muted)' }}>Panel de administración</p>
           </div>
         </div>

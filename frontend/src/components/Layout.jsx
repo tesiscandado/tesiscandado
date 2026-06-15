@@ -25,7 +25,7 @@ export default function Layout() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
       <header className="sticky top-0 z-30 px-4 md:px-6 py-3 flex items-center justify-between border-b backdrop-blur"
         style={{ background: 'color-mix(in srgb, var(--surface) 85%, transparent)', borderColor: 'var(--line)' }}>
-        <span className="flex items-center gap-2 font-bold text-lg">
+        <span className="font-display flex items-center gap-2 font-bold text-lg">
           <span className="w-8 h-8 rounded-lg grid place-items-center text-white text-sm"
             style={{ background: 'var(--accent-strong)' }}>🔒</span>
           <span className="hidden sm:inline">Candado Inteligente</span>
