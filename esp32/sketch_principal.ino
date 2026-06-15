@@ -16,6 +16,51 @@
   NOTA: la validacion del token RFID es LOCAL (offline), porque ThingSpeak
         no permite pregunta-respuesta en tiempo real. La lista se sincronizara
         luego via ThingSpeak TalkBack.
+
+  =====================================================================
+  MAPA DE CONEXIONES (todo a GND comun)
+  =====================================================================
+
+  --- SIM808 (UART2) ---
+    SIM808 TXD   -> ESP32 GPIO16
+    SIM808 RXD   -> ESP32 GPIO17
+    SIM808 VBAT  -> Bateria LiPo 1S (3.7-4.2V)  [misma bateria para todo]
+    SIM808 GND   -> GND comun
+    Antena GSM y Antena GPS conectadas. GPS con vista al cielo.
+
+  --- RC522 (RFID, SPI) ---
+    SDA(SS) -> GPIO5      SCK  -> GPIO18
+    MOSI    -> GPIO23     MISO -> GPIO19
+    RST     -> GPIO27     3.3V -> 3.3V    GND -> GND
+
+  --- MPU6050 (I2C) ---
+    SDA -> GPIO21    SCL -> GPIO22    VCC -> 3.3V    GND -> GND
+    (direccion 0x69: pin AD0 a VCC. Si usas 0x68, AD0 a GND y cambia en el codigo)
+
+  --- Sensor REED ---
+    Un extremo -> GPIO26    otro extremo -> GND   (usa pull-up interno)
+
+  --- Sensor HALL (KY-024) ---
+    A0 -> GPIO36 (VP)    D0 -> GPIO39 (VN)    VCC -> 3.3V    GND -> GND
+
+  --- Buzzer ---
+    + -> GPIO25    - -> GND
+
+  --- TTP223B (touch capacitivo) ---
+    I/O -> GPIO33    VCC -> 3.3V    GND -> GND
+    (debe dar HIGH al tocar. Modo momentaneo.)
+
+  --- XY-J02 (modulo temporizador relay) ---
+    Trigger -> GPIO13     GND_T -> GND del ESP32  (referencia del disparo!)
+    6~30V   -> +12V (boost)   GND -> GND
+    COM -> +12V    NO -> Solenoide(+)    Solenoide(-) -> GND
+    Configurar modo OP, tiempo 3.0s. Diodo flyback 1N4007 en el solenoide.
+
+  --- ALIMENTACION ---
+    Bateria LiPo 1S -> alimenta ESP32, SIM808, RC522, MPU, sensores
+    Boost 3.7V->12V -> alimenta el modulo XY-J02 y el solenoide
+    TODOS los GND unidos (comun)
+  =====================================================================
 */
 
 #define TINY_GSM_MODEM_SIM808
