@@ -46,6 +46,18 @@ body {
   letter-spacing: -0.02em;
 }
 
+.glow-card {
+  transition: border-color .3s ease, box-shadow .3s ease, transform .3s ease;
+}
+.glow-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-4px);
+  box-shadow: 0 0 22px -2px var(--accent), inset 0 0 16px -8px var(--accent);
+}
+.glow-card:hover .glow-ic {
+  box-shadow: 0 0 16px -2px var(--accent);
+}
+
 @keyframes blob {
   0%, 100% { transform: translate(0,0) scale(1); }
   33%      { transform: translate(30px,-40px) scale(1.1); }

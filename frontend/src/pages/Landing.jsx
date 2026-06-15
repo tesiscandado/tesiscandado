@@ -105,34 +105,33 @@ export default function Landing() {
             Hardware + nube + web trabajando juntos.
           </motion.p>
 
-          <div className="grid md:grid-cols-2 gap-10 items-center">
+          <div className="grid lg:grid-cols-[minmax(0,440px)_1fr] gap-12 items-stretch">
             {/* Video vertical (izquierda) */}
             <motion.div initial={{ opacity: 0, x: -30 }} whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.6 }}
-              className="relative flex justify-center">
-              <div className="absolute w-56 h-72 rounded-full blur-3xl"
-                style={{ background: 'var(--accent)', opacity: 0.22 }} />
+              className="relative flex justify-center items-stretch">
+              <div className="absolute inset-0 m-auto w-72 h-80 rounded-full blur-3xl"
+                style={{ background: 'var(--accent)', opacity: 0.25 }} />
               <video
                 src="/candadoabriendo.mp4"
                 autoPlay loop muted playsInline
-                className="relative rounded-3xl border w-full max-w-[300px] object-cover"
-                style={{ borderColor: 'var(--line)', boxShadow: '0 0 40px rgba(45,212,191,.18)' }}
+                className="relative rounded-3xl border w-full object-cover"
+                style={{ borderColor: 'var(--line)', boxShadow: '0 0 50px rgba(45,212,191,.22)' }}
               />
             </motion.div>
 
             {/* Features apiladas (derecha) */}
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col justify-between gap-5">
               {features.map((f, i) => (
                 <motion.div key={f.t} variants={fade} initial="hidden" whileInView="show"
                   viewport={{ once: true }} custom={i}
-                  whileHover={{ x: 6 }}
-                  className="flex items-start gap-4 rounded-2xl border p-5 transition"
+                  className="glow-card flex items-center gap-5 rounded-2xl border p-6 flex-1"
                   style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
-                  <div className="w-11 h-11 rounded-xl grid place-items-center text-xl shrink-0"
+                  <div className="glow-ic w-14 h-14 rounded-2xl grid place-items-center text-2xl shrink-0 transition"
                     style={{ background: 'var(--accent-soft)' }}>{f.icon}</div>
                   <div>
-                    <h3 className="font-semibold mb-1">{f.t}</h3>
-                    <p className="text-sm" style={{ color: 'var(--muted)' }}>{f.d}</p>
+                    <h3 className="font-display font-semibold text-lg mb-1">{f.t}</h3>
+                    <p className="text-[15px] leading-relaxed" style={{ color: 'var(--muted)' }}>{f.d}</p>
                   </div>
                 </motion.div>
               ))}
