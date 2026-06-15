@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './AuthContext'
+import { ThemeProvider } from './ThemeContext'
+import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Operadores from './pages/Operadores'
@@ -15,19 +17,22 @@ function RutaProtegida({ children }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<RutaProtegida><Layout /></RutaProtegida>}>
-            <Route index element={<Dashboard />} />
-            <Route path="operadores" element={<Operadores />} />
-            <Route path="autorizaciones" element={<Autorizaciones />} />
-            <Route path="candados" element={<Candados />} />
-            <Route path="registros" element={<Registros />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/panel" element={<RutaProtegida><Layout /></RutaProtegida>}>
+              <Route index element={<Dashboard />} />
+              <Route path="operadores" element={<Operadores />} />
+              <Route path="autorizaciones" element={<Autorizaciones />} />
+              <Route path="candados" element={<Candados />} />
+              <Route path="registros" element={<Registros />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }

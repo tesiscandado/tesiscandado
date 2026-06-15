@@ -1,1 +1,60 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg:            #f5f8f7;
+  --surface:       #ffffff;
+  --card:          #ffffff;
+  --line:          #e3e9e7;
+  --text:          #0e1f1b;
+  --muted:         #5c6b66;
+  --accent:        #0d9488;
+  --accent-strong: #0f766e;
+  --accent-soft:   #d8f3ee;
+  --ok:            #059669;
+  --warn:          #d97706;
+  --danger:        #dc2626;
+}
+
+.dark {
+  --bg:            #070f0d;
+  --surface:       #0e1a17;
+  --card:          #11201c;
+  --line:          #1e332d;
+  --text:          #eafaf5;
+  --muted:         #8aa39b;
+  --accent:        #2dd4bf;
+  --accent-strong: #14b8a6;
+  --accent-soft:   #0f3d35;
+  --ok:            #34d399;
+  --warn:          #fbbf24;
+  --danger:        #f87171;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  transition: background-color .35s ease, color .35s ease;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@keyframes blob {
+  0%, 100% { transform: translate(0,0) scale(1); }
+  33%      { transform: translate(30px,-40px) scale(1.1); }
+  66%      { transform: translate(-25px,25px) scale(0.95); }
+}
+.animate-blob { animation: blob 14s ease-in-out infinite; }
+
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-12px); }
+}
+.animate-float { animation: float-y 5s ease-in-out infinite; }
+
+@keyframes grid-pan {
+  from { background-position: 0 0; }
+  to   { background-position: 40px 40px; }
+}
