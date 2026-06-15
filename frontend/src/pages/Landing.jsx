@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import ThemeToggle from '../components/ThemeToggle'
+import SciFiLock from '../components/SciFiLock'
 
 const fade = {
   hidden: { opacity: 0, y: 30 },
@@ -84,26 +85,10 @@ export default function Landing() {
             </motion.div>
           </div>
 
-          {/* tarjeta flotante */}
-          <motion.div initial={{ opacity: 0, scale: 0.9, y: 30 }} animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.3 }} className="relative">
-            <div className="animate-float rounded-3xl border p-6 backdrop-blur"
-              style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
-              <div className="flex items-center justify-between mb-5">
-                <span className="font-semibold">Portón Principal</span>
-                <span className="text-xs px-2 py-1 rounded-full font-semibold"
-                  style={{ background: 'rgba(16,185,129,.15)', color: 'var(--ok)' }}>● En línea</span>
-              </div>
-              <div className="text-6xl text-center my-6">🔒</div>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                {[['🔋', '85%'], ['📍', 'GPS'], ['📶', 'GSM']].map(([i, v]) => (
-                  <div key={v} className="rounded-xl py-3" style={{ background: 'var(--bg)' }}>
-                    <div className="text-xl">{i}</div>
-                    <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {/* candado sci-fi animado (con parallax al hacer scroll) */}
+          <motion.div initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.9, delay: 0.2 }} className="relative grid place-items-center">
+            <SciFiLock />
           </motion.div>
         </div>
       </section>
