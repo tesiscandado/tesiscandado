@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAuth } from '../AuthContext'
 import ThemeToggle from '../components/ThemeToggle'
+import PlexusBackground from '../components/PlexusBackground'
 import api from '../api'
 
 export default function Login() {
@@ -34,12 +35,13 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4"
       style={{ background: 'var(--bg)', color: 'var(--text)' }}>
-      {/* blobs */}
+      {/* fondo plexus animado + blobs */}
+      <PlexusBackground />
       <div className="pointer-events-none absolute inset-0 opacity-50">
         <div className="animate-blob absolute -top-20 -left-20 w-80 h-80 rounded-full blur-3xl"
-          style={{ background: 'var(--accent)', opacity: .22 }} />
+          style={{ background: 'var(--accent)', opacity: .18 }} />
         <div className="animate-blob absolute bottom-0 right-0 w-80 h-80 rounded-full blur-3xl"
-          style={{ background: '#22d3ee', opacity: .15, animationDelay: '4s' }} />
+          style={{ background: '#22d3ee', opacity: .12, animationDelay: '4s' }} />
       </div>
 
       <div className="absolute top-5 right-5 flex items-center gap-3">
