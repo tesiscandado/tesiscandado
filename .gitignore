@@ -11,3 +11,6 @@ app-movil/node_modules/
 # Misc
 .DS_Store
 *.pyc
+
+# Carpeta de videos fuente (pesados) - el usado va en frontend/public
+video/

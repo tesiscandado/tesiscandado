@@ -104,18 +104,39 @@ export default function Landing() {
             className="text-center mb-14" style={{ color: 'var(--muted)' }}>
             Hardware + nube + web trabajando juntos.
           </motion.p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {features.map((f, i) => (
-              <motion.div key={f.t} variants={fade} initial="hidden" whileInView="show"
-                viewport={{ once: true }} custom={i}
-                whileHover={{ y: -6 }}
-                className="rounded-2xl border p-6 transition"
-                style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
-                <div className="text-3xl mb-4">{f.icon}</div>
-                <h3 className="font-semibold mb-2">{f.t}</h3>
-                <p className="text-sm" style={{ color: 'var(--muted)' }}>{f.d}</p>
-              </motion.div>
-            ))}
+
+          <div className="grid md:grid-cols-2 gap-10 items-center">
+            {/* Video vertical (izquierda) */}
+            <motion.div initial={{ opacity: 0, x: -30 }} whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }} transition={{ duration: 0.6 }}
+              className="relative flex justify-center">
+              <div className="absolute w-56 h-72 rounded-full blur-3xl"
+                style={{ background: 'var(--accent)', opacity: 0.22 }} />
+              <video
+                src="/candadoabriendo.mp4"
+                autoPlay loop muted playsInline
+                className="relative rounded-3xl border w-full max-w-[300px] object-cover"
+                style={{ borderColor: 'var(--line)', boxShadow: '0 0 40px rgba(45,212,191,.18)' }}
+              />
+            </motion.div>
+
+            {/* Features apiladas (derecha) */}
+            <div className="flex flex-col gap-4">
+              {features.map((f, i) => (
+                <motion.div key={f.t} variants={fade} initial="hidden" whileInView="show"
+                  viewport={{ once: true }} custom={i}
+                  whileHover={{ x: 6 }}
+                  className="flex items-start gap-4 rounded-2xl border p-5 transition"
+                  style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
+                  <div className="w-11 h-11 rounded-xl grid place-items-center text-xl shrink-0"
+                    style={{ background: 'var(--accent-soft)' }}>{f.icon}</div>
+                  <div>
+                    <h3 className="font-semibold mb-1">{f.t}</h3>
+                    <p className="text-sm" style={{ color: 'var(--muted)' }}>{f.d}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
