@@ -49,7 +49,7 @@ export default function Login() {
           autoPlay playsInline
           onEnded={() => navigate('/panel')}
           onError={() => navigate('/panel')}
-          className="w-full h-full object-cover"
+          className="max-w-full max-h-full w-auto h-auto object-contain"
         />
       </div>
     )
