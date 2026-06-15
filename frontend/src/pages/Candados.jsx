@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api'
 import { ConfirmModal, MapaModal } from '../components/Modal'
 
-const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
+const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 t-pri placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
 
 const estadoColor = {
@@ -93,22 +93,22 @@ export default function Candados() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-bold text-white">🔒 Candados</h2>
+      <h2 className="text-xl font-bold t-pri">🔒 Candados</h2>
 
       {/* Formulario */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
-        <h3 className="text-white font-semibold mb-4">{editId ? 'Editar candado' : 'Registrar candado'}</h3>
+        <h3 className="t-pri font-semibold mb-4">{editId ? 'Editar candado' : 'Registrar candado'}</h3>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <input placeholder="Código dispositivo (ej: ESP32-001)" value={form.codigo_dispositivo} onChange={e => setForm({ ...form, codigo_dispositivo: e.target.value })} className={inputCls} required />
           <input placeholder="Descripción (ej: Portón Principal)" value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} className={inputCls} />
           <input placeholder="Número SIM" value={form.sim_numero} onChange={e => setForm({ ...form, sim_numero: e.target.value })} className={inputCls} />
           {msg && <p className="text-sm text-blue-400">{msg}</p>}
           <div className="flex gap-2">
-            <button type="submit" className={`${btnCls} flex-1 bg-blue-600 hover:bg-blue-500 text-white`}>
+            <button type="submit" className={`${btnCls} flex-1 btn-accent`}>
               {editId ? 'Guardar' : 'Registrar'}
             </button>
             {editId && (
-              <button type="button" onClick={() => { setEditId(null); setForm({ codigo_dispositivo: '', descripcion: '', sim_numero: '' }); setMsg('') }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 text-white`}>
+              <button type="button" onClick={() => { setEditId(null); setForm({ codigo_dispositivo: '', descripcion: '', sim_numero: '' }); setMsg('') }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 t-pri`}>
                 Cancelar
               </button>
             )}
@@ -123,7 +123,7 @@ export default function Candados() {
             {/* Cabecera del candado */}
             <div className="p-4 flex items-start justify-between flex-wrap gap-3">
               <div>
-                <p className="text-white font-semibold">{c.descripcion || c.codigo_dispositivo}</p>
+                <p className="t-pri font-semibold">{c.descripcion || c.codigo_dispositivo}</p>
                 <p className="text-gray-500 text-xs mt-0.5">
                   {c.codigo_dispositivo}
                   {c.sim_numero ? ` · SIM: ${c.sim_numero}` : ''}
@@ -162,7 +162,7 @@ export default function Candados() {
 
               {/* Botones */}
               <div className="flex gap-2">
-                <button onClick={() => { setEditId(c.id); setForm({ codigo_dispositivo: c.codigo_dispositivo, descripcion: c.descripcion ?? '', sim_numero: c.sim_numero ?? '' }); setMsg('') }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 text-white text-xs`}>
+                <button onClick={() => { setEditId(c.id); setForm({ codigo_dispositivo: c.codigo_dispositivo, descripcion: c.descripcion ?? '', sim_numero: c.sim_numero ?? '' }); setMsg('') }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 t-pri text-xs`}>
                   Editar
                 </button>
                 <button onClick={() => setMapa(c)} className={`${btnCls} bg-blue-900/50 hover:bg-blue-900 text-blue-300 text-xs`}>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api'
 import { ConfirmModal } from '../components/Modal'
 
-const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
+const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 t-pri placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
 
 const estadoToken = {
@@ -102,11 +102,11 @@ export default function Autorizaciones() {
     })
   }
 
-  const tabCls = (t) => `${btnCls} ${tab === t ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`
+  const tabCls = (t) => `${btnCls} ${tab === t ? 'btn-accent' : 'bg-gray-800 text-gray-400 hover-pri'}`
 
   return (
     <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-bold text-white">🔑 Autorizaciones y Tokens</h2>
+      <h2 className="text-xl font-bold t-pri">🔑 Autorizaciones y Tokens</h2>
 
       {/* Tabs para tipo de token */}
       <div className="flex gap-2">
@@ -121,7 +121,7 @@ export default function Autorizaciones() {
       {/* Form token físico */}
       {tab === 'fisico' && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
-          <h3 className="text-white font-semibold mb-1">Registrar token de tarjeta física</h3>
+          <h3 className="t-pri font-semibold mb-1">Registrar token de tarjeta física</h3>
           <p className="text-gray-500 text-xs mb-4">El token es el texto de 7 caracteres guardado en el bloque 4 del tag RFID</p>
           <form onSubmit={handleFisico} className="flex flex-col gap-3">
             <select value={formFisico.candado_id} onChange={e => setFormFisico({ ...formFisico, candado_id: e.target.value })} className={inputCls} required>
@@ -138,10 +138,10 @@ export default function Autorizaciones() {
                 maxLength={7}
                 required
               />
-              <button type="button" onClick={generarToken} className={`${btnCls} bg-gray-700 hover:bg-gray-600 text-white whitespace-nowrap`}>🎲 Generar</button>
+              <button type="button" onClick={generarToken} className={`${btnCls} bg-gray-700 hover:bg-gray-600 t-pri whitespace-nowrap`}>🎲 Generar</button>
             </div>
             {msg && <p className="text-sm text-blue-400">{msg}</p>}
-            <button type="submit" className={`${btnCls} bg-blue-600 hover:bg-blue-500 text-white`}>Registrar token físico</button>
+            <button type="submit" className={`${btnCls} btn-accent`}>Registrar token físico</button>
           </form>
         </div>
       )}
@@ -149,7 +149,7 @@ export default function Autorizaciones() {
       {/* Form token app */}
       {tab === 'app' && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
-          <h3 className="text-white font-semibold mb-1">Generar token para operador</h3>
+          <h3 className="t-pri font-semibold mb-1">Generar token para operador</h3>
           <p className="text-gray-500 text-xs mb-4">Se genera un token de 7 caracteres y se asigna al operador. Desde su app, el operador lo graba en una tarjeta NFC en blanco para usarla en el lector.</p>
           <form onSubmit={handleApp} className="flex flex-col gap-3">
             <select value={formApp.candado_id} onChange={e => setFormApp({ ...formApp, candado_id: e.target.value })} className={inputCls} required>
@@ -164,11 +164,11 @@ export default function Autorizaciones() {
             {/* Modo de validez */}
             <div className="flex gap-2">
               <button type="button" onClick={() => setFormApp({ ...formApp, modo: 'inmediato' })}
-                className={`${btnCls} flex-1 ${formApp.modo === 'inmediato' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                className={`${btnCls} flex-1 ${formApp.modo === 'inmediato' ? 'btn-accent' : 'bg-gray-800 text-gray-400'}`}>
                 ⚡ Inmediato (2 min)
               </button>
               <button type="button" onClick={() => setFormApp({ ...formApp, modo: 'programado' })}
-                className={`${btnCls} flex-1 ${formApp.modo === 'programado' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                className={`${btnCls} flex-1 ${formApp.modo === 'programado' ? 'btn-accent' : 'bg-gray-800 text-gray-400'}`}>
                 🕒 Programado
               </button>
             </div>
@@ -185,7 +185,7 @@ export default function Autorizaciones() {
             )}
 
             {msg && <p className="text-sm text-blue-400">{msg}</p>}
-            <button type="submit" className={`${btnCls} bg-blue-600 hover:bg-blue-500 text-white`}>
+            <button type="submit" className={`${btnCls} btn-accent`}>
               {formApp.modo === 'programado' ? 'Programar token' : 'Generar token'}
             </button>
           </form>
@@ -195,7 +195,7 @@ export default function Autorizaciones() {
       {/* Lista de tokens */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-800">
-          <h3 className="text-white font-semibold text-sm">Tokens registrados</h3>
+          <h3 className="t-pri font-semibold text-sm">Tokens registrados</h3>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -216,7 +216,7 @@ export default function Autorizaciones() {
                     {t.tipo === 'rfid_fisico' ? '📟 Físico' : '📱 App'}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-white">
+                <td className="px-4 py-3 t-pri">
                   {t.tipo === 'rfid_fisico' ? t.etiqueta : t.usuarios?.nombre ?? '—'}
                 </td>
                 <td className="px-4 py-3 font-mono text-green-400 text-xs">

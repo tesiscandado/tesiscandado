@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api'
 import { ConfirmModal } from '../components/Modal'
 
-const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
+const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 t-pri placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
 
 export default function Operadores() {
@@ -62,11 +62,11 @@ export default function Operadores() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-bold text-white">👷 Operadores</h2>
+      <h2 className="text-xl font-bold t-pri">👷 Operadores</h2>
 
       {/* Formulario */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
-        <h3 className="text-white font-semibold mb-4">{editId ? 'Editar operador' : 'Registrar operador'}</h3>
+        <h3 className="t-pri font-semibold mb-4">{editId ? 'Editar operador' : 'Registrar operador'}</h3>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           {!editId && (
             <>
@@ -81,11 +81,11 @@ export default function Operadores() {
           </div>
           {msg && <p className="text-sm text-blue-400">{msg}</p>}
           <div className="flex gap-2">
-            <button type="submit" className={`${btnCls} flex-1 bg-blue-600 hover:bg-blue-500 text-white`}>
+            <button type="submit" className={`${btnCls} flex-1 btn-accent`}>
               {editId ? 'Guardar cambios' : 'Registrar'}
             </button>
             {editId && (
-              <button type="button" onClick={limpiar} className={`${btnCls} bg-gray-700 hover:bg-gray-600 text-white`}>Cancelar</button>
+              <button type="button" onClick={limpiar} className={`${btnCls} bg-gray-700 hover:bg-gray-600 t-pri`}>Cancelar</button>
             )}
           </div>
         </form>
@@ -96,7 +96,7 @@ export default function Operadores() {
         {operadores.map(op => (
           <div key={op.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between flex-wrap gap-3">
             <div>
-              <p className="text-white font-semibold">{op.nombre}</p>
+              <p className="t-pri font-semibold">{op.nombre}</p>
               <p className="text-gray-500 text-xs">
                 @{op.usuario}
                 {op.cargo ? ` · ${op.cargo}` : ''}
@@ -107,7 +107,7 @@ export default function Operadores() {
               <span className={`text-xs px-2 py-1 rounded-full ${op.activo ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
                 {op.activo ? 'Activo' : 'Inactivo'}
               </span>
-              <button onClick={() => { setEditId(op.id); setForm({ usuario: '', password: '', nombre: op.nombre, telefono: op.telefono ?? '', cargo: op.cargo ?? '' }) }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 text-white text-xs`}>
+              <button onClick={() => { setEditId(op.id); setForm({ usuario: '', password: '', nombre: op.nombre, telefono: op.telefono ?? '', cargo: op.cargo ?? '' }) }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 t-pri text-xs`}>
                 Editar
               </button>
               <button onClick={() => toggleEstado(op)} className={`${btnCls} text-xs ${op.activo ? 'bg-yellow-900 hover:bg-yellow-800 text-yellow-300' : 'bg-green-900 hover:bg-green-800 text-green-300'}`}>

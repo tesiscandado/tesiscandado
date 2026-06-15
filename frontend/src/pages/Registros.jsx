@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api'
 
 const tabCls = (active) =>
-  `px-4 py-2 text-sm font-semibold rounded-lg transition ${active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`
+  `px-4 py-2 text-sm font-semibold rounded-lg transition ${active ? 'btn-accent' : 'text-gray-400 hover-pri'}`
 
 const severidadInfo = {
   3: { label: 'Crítico',     color: 'bg-red-900 text-red-300' },
@@ -39,7 +39,7 @@ export default function Registros() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-bold text-white">📜 Monitoreo y Registros</h2>
+      <h2 className="text-xl font-bold t-pri">📜 Monitoreo y Registros</h2>
 
       {/* Tabs */}
       <div className="flex gap-2">
@@ -69,7 +69,7 @@ export default function Registros() {
                 return (
                   <tr key={e.id} className="border-b border-gray-800 last:border-0 hover:bg-gray-800/40">
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">{new Date(e.ocurrido_en).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-white">{e.tipos_evento?.nombre}</td>
+                    <td className="px-4 py-3 t-pri">{e.tipos_evento?.nombre}</td>
                     <td className="px-4 py-3 text-gray-400">{e.candados?.descripcion}</td>
                     <td className="px-4 py-3 text-gray-400">{e.usuarios?.nombre ?? '—'}</td>
                     <td className="px-4 py-3">
@@ -103,7 +103,7 @@ export default function Registros() {
               {alertas.map(a => (
                 <tr key={a.id} className="border-b border-gray-800 last:border-0 hover:bg-gray-800/40">
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">{new Date(a.eventos?.ocurrido_en).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-white">{a.eventos?.tipos_evento?.nombre}</td>
+                  <td className="px-4 py-3 t-pri">{a.eventos?.tipos_evento?.nombre}</td>
                   <td className="px-4 py-3 text-gray-400">{a.eventos?.candados?.descripcion}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full ${a.nivel === 3 ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'}`}>
@@ -142,7 +142,7 @@ export default function Registros() {
               {sincros.map(s => (
                 <tr key={s.id} className="border-b border-gray-800 last:border-0 hover:bg-gray-800/40">
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">{new Date(s.creado_en).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-white">{s.candados?.descripcion}</td>
+                  <td className="px-4 py-3 t-pri">{s.candados?.descripcion}</td>
                   <td className="px-4 py-3 text-gray-400 font-mono text-xs">{s.token.slice(0, 12)}...</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full ${

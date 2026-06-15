@@ -46,6 +46,48 @@ body {
   letter-spacing: -0.02em;
 }
 
+/* Helpers de tema para el panel */
+.surface-card { background: var(--card); border: 1px solid var(--line); }
+.bg-card { background: var(--card); }
+.surface-soft { background: var(--surface); }
+.t-pri { color: var(--text); }
+.t-mut { color: var(--muted); }
+.bd { border-color: var(--line); }
+.fld {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.fld::placeholder { color: var(--muted); opacity: .8; }
+.fld:focus { outline: none; border-color: var(--accent); }
+
+/* Compatibilidad: mapea utilidades antiguas (grises/azul) al tema */
+.bg-gray-950 { background: var(--bg) !important; }
+.bg-gray-900 { background: var(--card) !important; }
+.bg-gray-800 { background: var(--surface) !important; }
+.bg-gray-700 { background: var(--surface) !important; }
+.hover\:bg-gray-900:hover { background: var(--card) !important; }
+.hover\:bg-gray-800:hover { background: var(--surface) !important; }
+.hover\:bg-gray-600:hover { background: var(--line) !important; }
+.bg-gray-800\/40 { background: color-mix(in srgb, var(--surface) 55%, transparent) !important; }
+.hover\:bg-gray-800\/40:hover { background: color-mix(in srgb, var(--surface) 55%, transparent) !important; }
+.border-gray-800 { border-color: var(--line) !important; }
+.border-gray-700 { border-color: var(--line) !important; }
+.text-gray-300 { color: var(--text) !important; }
+.text-gray-400 { color: var(--muted) !important; }
+.text-gray-500 { color: var(--muted) !important; }
+.text-gray-600 { color: var(--muted) !important; }
+.placeholder-gray-500::placeholder { color: var(--muted) !important; }
+
+/* Azul viejo -> teal del tema */
+.text-blue-400 { color: var(--accent) !important; }
+.focus\:border-blue-500:focus { border-color: var(--accent) !important; }
+.btn-accent { background: var(--accent-strong) !important; color: #fff !important; }
+.btn-accent:hover { background: var(--accent) !important; }
+.btn-danger { background: #dc2626 !important; color: #fff !important; }
+.btn-danger:hover { background: #b91c1c !important; }
+.hover-pri:hover { color: var(--text) !important; }
+
 .glow-card {
   transition: border-color .3s ease, box-shadow .3s ease, transform .3s ease;
 }
