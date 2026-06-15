@@ -156,9 +156,14 @@ void reportar(int evento, int salud, const char* status) {
 // SOLENOIDE
 // -------------------------
 void abrirSolenoide() {
-  digitalWrite(RELAY_PIN, RELAY_ON);   // activa el relay -> solenoide
+  // El modulo temporizador XY-J02 maneja los 3s de apertura.
+  // El ESP32 solo manda un PULSO corto en Trigger.
   solenoideAbierto = true;
-  // Confirmar apertura con el reed (debe dejar de detectar al abrir)
+  digitalWrite(RELAY_PIN, RELAY_ON);
+  delay(300);                          // pulso de disparo
+  digitalWrite(RELAY_PIN, RELAY_OFF);
+
+  // Confirmar apertura con el reed durante la ventana del temporizador
   unsigned long t = millis();
   bool confirmo = false;
   while (millis() - t < 3000) {
@@ -166,12 +171,10 @@ void abrirSolenoide() {
     delay(50);
   }
   if (!confirmo) {
-    saludHW = 3; // fallo_solenoide: se ordeno abrir pero no confirmo
+    saludHW = 3; // fallo_solenoide: se disparo pero el reed no confirmo apertura
     Serial.println("FALLO SOLENOIDE: no confirmo apertura");
     reportar(0, 3, "Solenoide no confirmo apertura");
   }
-  delay(3000);
-  digitalWrite(RELAY_PIN, RELAY_OFF);  // cierra el relay
   solenoideAbierto = false;
 }
 
