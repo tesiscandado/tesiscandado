@@ -9,12 +9,19 @@ Mapeo de campos del canal:
   field3 = bateria      field6 = solenoide (0/1)
 """
 import os
+import time
+import threading
 import httpx
 from fastapi import APIRouter
 from main import supabase
 from datetime import datetime, timezone
 
 router = APIRouter()
+
+# Throttle: no sincronizar mas seguido que esto (segundos)
+_SYNC_MIN_INTERVALO = 12
+_ultimo_sync = 0
+_sync_lock = threading.Lock()
 
 TS_CHANNEL  = os.getenv("TS_CHANNEL",  "3407489")
 TS_READ_KEY = os.getenv("TS_READ_KEY", "NB2O3UZFC04YAOIH")
@@ -71,7 +78,22 @@ def _num(valor):
 @router.get("/sync")
 def sync_thingspeak():
     """Lee el canal de ThingSpeak y actualiza el candado (coordenadas, bateria,
-    solenoide) y crea los eventos/alarmas nuevos. Evita duplicados con ts_entry."""
+    solenoide) y crea los eventos/alarmas nuevos. Evita duplicados con ts_entry.
+    Limitado (throttle) para no saturar el cliente de Supabase."""
+    global _ultimo_sync
+    # Si otra petición ya sincronizó hace poco, o hay una en curso, salir
+    if not _sync_lock.acquire(blocking=False):
+        return {"ok": True, "throttled": "en curso"}
+    try:
+        if time.time() - _ultimo_sync < _SYNC_MIN_INTERVALO:
+            return {"ok": True, "throttled": True}
+        _ultimo_sync = time.time()
+        return _hacer_sync()
+    finally:
+        _sync_lock.release()
+
+
+def _hacer_sync():
     cand = (
         supabase.table("candados")
         .select("id, ts_entry")

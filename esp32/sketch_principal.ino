@@ -106,7 +106,7 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 MFRC522 rfid(SS_PIN, RST_PIN);
 MPU6050 mpu(0x69);
 TinyGsm modem(Serial2);
-TinyGsmClient gsmClient(modem);
+TinyGsmClient gsmClient(modem);   // HTTP puerto 80
 
 MFRC522::MIFARE_Key keyNDEF;
 MFRC522::MIFARE_Key keyFactory;
@@ -115,7 +115,7 @@ MFRC522::MIFARE_Key keyFactory;
 // TOKENS AUTORIZADOS (validacion local offline)
 // Se sincronizaran luego via TalkBack. Por ahora, lista fija.
 // -------------------------
-const char* TOKENS_OK[] = { "ABC1234" };
+const char* TOKENS_OK[] = { "LCBN8CC", "TK00001" };   // <- pon aqui los tokens validos (de la web)
 const int   N_TOKENS    = sizeof(TOKENS_OK) / sizeof(TOKENS_OK[0]);
 
 // -------------------------
@@ -149,20 +149,28 @@ bool falloRFID = false, falloMPU = false;
 // -------------------------
 // POST A THINGSPEAK (HTTP por GPRS)
 // -------------------------
-bool postThingSpeak(int evento, int salud, const char* status) {
-  if (!modem.isGprsConnected()) {
-    Serial.println("GPRS desconectado, reintentando...");
-    modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
-    if (!modem.isGprsConnected()) return false;
+// Enviar un comando AT crudo al SIM808 y devolver su respuesta
+String enviarAT(String cmd, unsigned long timeout = 3000, const char* hasta = "OK") {
+  while (Serial2.available()) Serial2.read();   // limpiar buffer
+  Serial2.println(cmd);
+  String r = "";
+  unsigned long t = millis();
+  while (millis() - t < timeout) {
+    while (Serial2.available()) r += (char)Serial2.read();
+    if (r.indexOf(hasta) >= 0) { delay(150); while (Serial2.available()) r += (char)Serial2.read(); break; }
+    delay(5);
   }
+  return r;
+}
 
-  if (!gsmClient.connect(TS_HOST, 80)) {
-    Serial.println("No conecto a ThingSpeak");
+// POST a ThingSpeak con el motor HTTP NATIVO del SIM808 (AT+HTTP)
+bool postThingSpeak(int evento, int salud, const char* status) {
+  // Si no hay GPRS, NO bloquear el candado: salir rapido
+  if (!modem.isGprsConnected()) {
+    Serial.println("Sin GPRS, post omitido");
     return false;
   }
-
-  // Construir URL de update
-  String url = "/update?api_key=" + String(TS_WRITEKEY);
+  String url = "http://" + String(TS_HOST) + "/update?api_key=" + String(TS_WRITEKEY);
   if (ultLat != 0 && ultLon != 0) {
     url += "&field1=" + String(ultLat, 6);
     url += "&field2=" + String(ultLon, 6);
@@ -173,33 +181,50 @@ bool postThingSpeak(int evento, int salud, const char* status) {
   url += "&field6=" + String(solenoideAbierto ? 1 : 0);
   if (status && strlen(status) > 0) {
     String s = String(status);
-    s.replace(" ", "%20");   // codificar espacios (si no, rompe la peticion HTTP)
+    s.replace(" ", "%20");
     url += "&status=" + s;
   }
 
-  gsmClient.print(String("GET ") + url + " HTTP/1.1\r\n");
-  gsmClient.print(String("Host: ") + TS_HOST + "\r\n");
-  gsmClient.print("Connection: close\r\n\r\n");
-
-  // Leer respuesta y mostrar el ID de entrada (0 = rechazado)
-  String resp = "";
-  unsigned long t = millis();
-  while (gsmClient.connected() && millis() - t < 8000) {
-    while (gsmClient.available()) { resp += (char)gsmClient.read(); t = millis(); }
+  // Asegurar que el bearer GPRS este abierto (si no, reabrirlo)
+  if (enviarAT("AT+SAPBR=2,1").indexOf("+SAPBR: 1,1") < 0) {
+    enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
+    enviarAT("AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"");
+    enviarAT("AT+SAPBR=1,1", 10000);
   }
-  gsmClient.stop();
-  int corte = resp.lastIndexOf('\n');
-  String idEntrada = (corte >= 0) ? resp.substring(corte + 1) : resp;
-  idEntrada.trim();
-  Serial.printf("ThingSpeak post: evento=%d salud=%d -> ID=%s\n", evento, salud, idEntrada.c_str());
+
+  enviarAT("AT+HTTPTERM", 1500);                      // por si quedo abierto
+  delay(100);
+  if (enviarAT("AT+HTTPINIT").indexOf("OK") < 0) {
+    // Reintento: cerrar y volver a iniciar
+    enviarAT("AT+HTTPTERM", 1500);
+    delay(400);
+    if (enviarAT("AT+HTTPINIT").indexOf("OK") < 0) {
+      Serial.println("HTTPINIT fallo");
+      return false;
+    }
+  }
+  enviarAT("AT+HTTPPARA=\"CID\",1");
+  enviarAT("AT+HTTPPARA=\"URL\",\"" + url + "\"");
+  String r = enviarAT("AT+HTTPACTION=0", 20000, "+HTTPACTION:");  // GET
+  enviarAT("AT+HTTPTERM", 1500);
+
+  // Parsear:  +HTTPACTION: 0,200,3   (metodo, codigo HTTP, longitud)
+  int code = 0;
+  int idx = r.indexOf("+HTTPACTION:");
+  if (idx >= 0) {
+    int c1 = r.indexOf(',', idx);
+    int c2 = r.indexOf(',', c1 + 1);
+    if (c1 >= 0 && c2 >= 0) code = r.substring(c1 + 1, c2).toInt();
+  }
+  Serial.printf("ThingSpeak post: evento=%d salud=%d -> HTTP %d\n", evento, salud, code);
   ultimoPost = millis();
-  return true;
+  return (code == 200);
 }
 
-// Encolar un evento para enviar (respetando rate limit)
+// Reportar un evento SIN bloquear el candado.
+// Si fue hace menos de 15s, se omite (no se congela el lazo esperando).
 void reportar(int evento, int salud, const char* status) {
-  // Espera el minimo entre posts
-  while (millis() - ultimoPost < MIN_ENTRE_POST) { delay(100); }
+  if (millis() - ultimoPost < MIN_ENTRE_POST) return;
   postThingSpeak(evento, salud, status);
 }
 
@@ -328,9 +353,20 @@ void setup() {
   modem.restart();
   modem.waitForNetwork(60000L);
   Serial.print("GPRS...");
-  modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
+  for (int i = 0; i < 6 && !modem.isGprsConnected(); i++) {
+    modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
+    if (modem.isGprsConnected()) break;
+    Serial.print(".");
+    delay(3000);
+  }
   Serial.println(modem.isGprsConnected() ? "OK" : "FALLO");
-  modem.enableGPS();
+  // modem.enableGPS();   // GPS DESACTIVADO temporalmente para probar si interfiere con GPRS
+
+  // Abrir bearer GPRS para el motor HTTP nativo del SIM808
+  enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
+  enviarAT("AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"");
+  enviarAT("AT+SAPBR=1,1", 10000);
+  enviarAT("AT+SAPBR=2,1");
 
   // Lectura inicial de bateria (AT+CBC del SIM808)
   ultBat = modem.getBattPercent();
@@ -350,6 +386,14 @@ void setup() {
 // LOOP
 // -------------------------
 void loop() {
+
+  // ===== DIAGNOSTICO cada 2s: estado del touch y GPRS =====
+  static unsigned long ultLog = 0;
+  if (millis() - ultLog > 2000) {
+    ultLog = millis();
+    Serial.printf("[STATUS] Touch=%d  GPRS=%s\n",
+      digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO");
+  }
 
   // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
   bool tocando = (digitalRead(TOUCH_PIN) == HIGH);
@@ -445,7 +489,7 @@ void loop() {
 
   // ===== TELEMETRIA periodica (GPS + bateria) =====
   if (millis() - ultimoPost >= INTERVALO_POST) {
-    actualizarGPS();
+    // actualizarGPS();   // GPS desactivado para la prueba
     ultBat = modem.getBattPercent();
     postThingSpeak(0, saludHW, "heartbeat");
   }
