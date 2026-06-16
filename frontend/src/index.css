@@ -18,10 +18,10 @@
 }
 
 .dark {
-  --bg:            #070f0d;
-  --surface:       #0e1a17;
-  --card:          #11201c;
-  --line:          #1e332d;
+  --bg:            #050d0b;
+  --surface:       #0c1a16;
+  --card:          #142822;
+  --line:          #244a3f;
   --text:          #eafaf5;
   --muted:         #8aa39b;
   --accent:        #2dd4bf;

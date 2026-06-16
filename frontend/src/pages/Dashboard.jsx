@@ -79,7 +79,7 @@ export default function Dashboard() {
           const alerta = m.alerta && valor > 0
           return (
             <motion.div key={m.key} variants={item} whileHover={{ y: -4 }}
-              className="surface-card rounded-2xl p-5 relative overflow-hidden"
+              className="surface-card glow-card rounded-2xl p-5 relative overflow-hidden"
               style={alerta ? { borderColor: 'var(--danger)' } : {}}>
               <span className="absolute right-3 top-3 text-lg opacity-60">{m.icon}</span>
               <p className="font-display text-4xl font-bold"
@@ -100,7 +100,7 @@ export default function Dashboard() {
             const batColor = bat == null ? '#6b7280' : bat < 20 ? '#ef4444' : '#2dd4bf'
             return (
               <motion.div key={c.id} variants={item} whileHover={{ y: -4 }}
-                className="surface-card rounded-2xl p-5 flex flex-col gap-3">
+                className="surface-card glow-card rounded-2xl p-5 flex flex-col gap-3">
                 <div className="flex items-start gap-3">
                   <span className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0"
                     style={{ background: estadoDot[c.estado] ?? '#6b7280' }} />
