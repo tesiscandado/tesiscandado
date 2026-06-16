@@ -79,11 +79,36 @@ export default function HomeScreen() {
         return
       }
       setEmulando(true)
+      // Limpiar cualquier sesion NFC previa
+      await NfcManager.cancelTechnologyRequest().catch(() => {})
       await NfcManager.requestTechnology(NfcTech.Ndef)
+
+      // Confirmar que REALMENTE hay una tarjeta presente
+      const tag = await NfcManager.getTag()
+      if (!tag) {
+        throw new Error('Sin tarjeta: acerca un tag NFC al celular')
+      }
+
+      // Escribir el token en el tag
       const bytes = Ndef.encodeMessage([Ndef.textRecord((tokenActivo as any).token)])
       await NfcManager.ndefHandler.writeNdefMessage(bytes)
 
-      // Marcar el token como activo en el backend tras grabarlo
+      // Verificar leyendo de vuelta lo que se grabó
+      let ok = false
+      try {
+        const escrito = await NfcManager.ndefHandler.getNdefMessage()
+        const rec = escrito?.ndefMessage?.[0]
+        if (rec) {
+          const texto = Ndef.text.decodePayload(new Uint8Array(rec.payload))
+          ok = texto === (tokenActivo as any).token
+        }
+      } catch {}
+
+      if (!ok) {
+        throw new Error('No se pudo verificar la grabación. Mantén la tarjeta pegada e intenta de nuevo.')
+      }
+
+      // Solo si SÍ se grabó: marcar el token como activo
       try {
         await api.patch(`/autorizacion/tokens/${(tokenActivo as any).id}/estado?estado=activo`)
       } catch {}
@@ -91,8 +116,11 @@ export default function HomeScreen() {
       Alert.alert('✅ Tarjeta grabada', `El token quedó guardado en la tarjeta.\nYa puedes usarla en el lector.`)
       cargarDatos()
     } catch (err: any) {
-      if (err?.message?.includes('cancelled')) return
-      Alert.alert('Error NFC', 'No se pudo grabar la tarjeta. Acerca un tag NFC en blanco e intenta de nuevo.')
+      const m = err?.message || ''
+      if (m.includes('cancelled')) return
+      Alert.alert('No se grabó', m.includes('Sin tarjeta') || m.includes('verificar')
+        ? m
+        : 'No se pudo grabar la tarjeta. Acerca un tag NFC en blanco y mantenlo pegado.')
     } finally {
       NfcManager.cancelTechnologyRequest().catch(() => {})
       setEmulando(false)

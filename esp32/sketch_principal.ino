@@ -172,20 +172,26 @@ bool postThingSpeak(int evento, int salud, const char* status) {
   url += "&field5=" + String(salud);
   url += "&field6=" + String(solenoideAbierto ? 1 : 0);
   if (status && strlen(status) > 0) {
-    url += "&status=" + String(status);
+    String s = String(status);
+    s.replace(" ", "%20");   // codificar espacios (si no, rompe la peticion HTTP)
+    url += "&status=" + s;
   }
 
   gsmClient.print(String("GET ") + url + " HTTP/1.1\r\n");
   gsmClient.print(String("Host: ") + TS_HOST + "\r\n");
   gsmClient.print("Connection: close\r\n\r\n");
 
-  // Leer respuesta (no critica)
+  // Leer respuesta y mostrar el ID de entrada (0 = rechazado)
+  String resp = "";
   unsigned long t = millis();
   while (gsmClient.connected() && millis() - t < 8000) {
-    while (gsmClient.available()) { gsmClient.read(); t = millis(); }
+    while (gsmClient.available()) { resp += (char)gsmClient.read(); t = millis(); }
   }
   gsmClient.stop();
-  Serial.printf("ThingSpeak post: evento=%d salud=%d\n", evento, salud);
+  int corte = resp.lastIndexOf('\n');
+  String idEntrada = (corte >= 0) ? resp.substring(corte + 1) : resp;
+  idEntrada.trim();
+  Serial.printf("ThingSpeak post: evento=%d salud=%d -> ID=%s\n", evento, salud, idEntrada.c_str());
   ultimoPost = millis();
   return true;
 }
