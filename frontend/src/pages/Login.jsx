@@ -43,13 +43,15 @@ export default function Login() {
   // Overlay de video al iniciar sesion correctamente
   if (showVideo) {
     return (
-      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+      <div className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: 'radial-gradient(circle at 50% 45%, #0d3b34 0%, #061513 55%, #020807 100%)' }}>
         <video
           src="/iniciarSesion.mp4"
           autoPlay playsInline
           onEnded={() => navigate('/panel')}
           onError={() => navigate('/panel')}
           className="max-w-full max-h-full w-auto h-auto object-contain"
+          style={{ filter: 'drop-shadow(0 0 60px rgba(45,212,191,.35))' }}
         />
       </div>
     )
