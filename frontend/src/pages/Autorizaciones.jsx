@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import api from '../api'
 import { ConfirmModal } from '../components/Modal'
 
-const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 t-pri placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
+const inputCls = 'fld rounded-lg px-4 py-2.5 w-full'
 const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
 
 const estadoToken = {
-  activo:    'bg-green-900 text-green-300',
-  pendiente: 'bg-yellow-900 text-yellow-300',
-  programado:'bg-blue-900 text-blue-300',
-  expirado:  'bg-gray-800 text-gray-400',
+  activo:    { background: 'rgba(16,185,129,.15)', color: '#34d399' },
+  pendiente: { background: 'rgba(245,158,11,.15)', color: '#fbbf24' },
+  programado:{ background: 'rgba(99,102,241,.15)', color: '#a5b4fc' },
+  expirado:  { background: 'var(--accent-soft)',   color: 'var(--muted)' },
 }
 
 export default function Autorizaciones() {
@@ -19,6 +19,7 @@ export default function Autorizaciones() {
   const [operadores, setOperadores] = useState([])
   const [msg, setMsg]           = useState('')
   const [confirmar, setConfirmar] = useState(null)
+  const [limite, setLimite]     = useState(5)
 
   // Forms
   const [formFisico, setFormFisico] = useState({ candado_id: '', etiqueta: '', token: '' })
@@ -102,12 +103,21 @@ export default function Autorizaciones() {
     })
   }
 
-  const tabCls = (t) => `${btnCls} ${tab === t ? 'btn-accent' : 'bg-gray-800 text-gray-400 hover-pri'}`
+  const tabCls = (t) => `${btnCls} ${tab === t ? 'btn-accent' : 'surface-soft text-gray-400 hover-pri'}`
+
+  const totalT   = tokens.length
+  const fisicoT  = tokens.filter(t => t.tipo === 'rfid_fisico').length
+  const appT     = totalT - fisicoT
+  const activosT = tokens.filter(t => t.estado === 'activo').length
+  const pctFisico = totalT ? Math.round((fisicoT / totalT) * 100) : 0
+  const visiblesT = limite === 'todos' ? tokens : tokens.slice(0, Number(limite))
 
   return (
-    <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-bold t-pri">🔑 Autorizaciones y Tokens</h2>
+    <div className="flex flex-col gap-7 max-w-7xl mx-auto">
+      <h2 className="font-display text-2xl font-bold t-pri">Autorizaciones y Tokens</h2>
 
+      <div className="grid lg:grid-cols-[1fr_minmax(0,330px)] gap-6 items-start">
+       <div className="flex flex-col gap-4 min-w-0">
       {/* Tabs para tipo de token */}
       <div className="flex gap-2">
         <button className={tabCls('fisico')} onClick={() => { setTab('fisico'); setMsg('') }}>
@@ -120,7 +130,7 @@ export default function Autorizaciones() {
 
       {/* Form token físico */}
       {tab === 'fisico' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
+        <div className="surface-card rounded-2xl p-6">
           <h3 className="t-pri font-semibold mb-1">Registrar token de tarjeta física</h3>
           <p className="text-gray-500 text-xs mb-4">El token es el texto de 7 caracteres guardado en el bloque 4 del tag RFID</p>
           <form onSubmit={handleFisico} className="flex flex-col gap-3">
@@ -148,7 +158,7 @@ export default function Autorizaciones() {
 
       {/* Form token app */}
       {tab === 'app' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
+        <div className="surface-card rounded-2xl p-6">
           <h3 className="t-pri font-semibold mb-1">Generar token para operador</h3>
           <p className="text-gray-500 text-xs mb-4">Se genera un token de 7 caracteres y se asigna al operador. Desde su app, el operador lo graba en una tarjeta NFC en blanco para usarla en el lector.</p>
           <form onSubmit={handleApp} className="flex flex-col gap-3">
@@ -192,10 +202,46 @@ export default function Autorizaciones() {
         </div>
       )}
 
+       </div>{/* fin columna izquierda */}
+
+       {/* Panel resumen con dona */}
+       <div className="surface-card rounded-2xl p-6 flex flex-col items-center">
+         <h3 className="font-display t-pri font-semibold mb-4 self-start">Distribución de tokens</h3>
+         <div className="relative w-40 h-40 rounded-full"
+           style={{ background: `conic-gradient(var(--accent) 0 ${pctFisico}%, #a78bfa ${pctFisico}% 100%)` }}>
+           <div className="absolute inset-[14px] rounded-full grid place-items-center" style={{ background: 'var(--card)' }}>
+             <div className="text-center">
+               <div className="font-display text-2xl font-bold t-pri">{totalT}</div>
+               <div className="t-mut text-xs">tokens</div>
+             </div>
+           </div>
+         </div>
+         <div className="flex flex-col gap-2 w-full mt-5 text-sm">
+           <div className="flex items-center justify-between">
+             <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{ background: 'var(--accent)' }} />📟 Físicos</span>
+             <span className="font-semibold t-pri">{fisicoT}</span>
+           </div>
+           <div className="flex items-center justify-between">
+             <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{ background: '#a78bfa' }} />📱 App NFC</span>
+             <span className="font-semibold t-pri">{appT}</span>
+           </div>
+           <div className="flex items-center justify-between pt-2 border-t bd">
+             <span className="t-mut">✅ Activos</span>
+             <span className="font-semibold" style={{ color: '#34d399' }}>{activosT}</span>
+           </div>
+         </div>
+       </div>
+      </div>{/* fin grid */}
+
       {/* Lista de tokens */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-800">
+      <div className="surface-card rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b bd flex items-center justify-between">
           <h3 className="t-pri font-semibold text-sm">Tokens registrados</h3>
+          <label className="flex items-center gap-2 text-xs t-mut">Mostrar
+            <select value={limite} onChange={e => setLimite(e.target.value)} className="fld rounded-lg px-2 py-1 text-xs">
+              <option value={5}>5</option><option value={10}>10</option><option value="todos">Todos</option>
+            </select>
+          </label>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -209,36 +255,38 @@ export default function Autorizaciones() {
             </tr>
           </thead>
           <tbody>
-            {tokens.map(t => (
-              <tr key={t.id} className="border-b border-gray-800 last:border-0 hover:bg-gray-800/40">
+            {visiblesT.map(t => (
+              <tr key={t.id} className="border-b bd last:border-0 hover:bg-gray-800/40">
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-1 rounded-full ${t.tipo === 'rfid_fisico' ? 'bg-blue-900 text-blue-300' : 'bg-purple-900 text-purple-300'}`}>
+                  <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                    style={t.tipo === 'rfid_fisico' ? { background: 'var(--accent-soft)', color: 'var(--accent)' } : { background: 'rgba(167,139,250,.15)', color: '#a78bfa' }}>
                     {t.tipo === 'rfid_fisico' ? '📟 Físico' : '📱 App'}
                   </span>
                 </td>
                 <td className="px-4 py-3 t-pri">
                   {t.tipo === 'rfid_fisico' ? t.etiqueta : t.usuarios?.nombre ?? '—'}
                 </td>
-                <td className="px-4 py-3 font-mono text-green-400 text-xs">
+                <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--accent)' }}>
                   {t.token
                     ? t.token
-                    : <span className="text-blue-400">⏳ {t.valido_desde ? new Date(t.valido_desde).toLocaleString() : 'programado'}</span>}
+                    : <span style={{ color: '#a5b4fc' }}>⏳ {t.valido_desde ? new Date(t.valido_desde).toLocaleString() : 'programado'}</span>}
                 </td>
-                <td className="px-4 py-3 text-gray-400">{t.candados?.descripcion}</td>
+                <td className="px-4 py-3 t-mut">{t.candados?.descripcion}</td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-1 rounded-full ${estadoToken[t.estado] ?? estadoToken.pendiente}`}>
+                  <span className="text-xs px-2 py-1 rounded-full font-semibold capitalize"
+                    style={estadoToken[t.estado] ?? estadoToken.pendiente}>
                     {t.estado}
                   </span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2">
                     {t.estado !== 'activo' && (
-                      <button onClick={() => cambiarEstado(t.id, 'activo')} className="text-xs text-green-400 hover:text-green-300">Activar</button>
+                      <button onClick={() => cambiarEstado(t.id, 'activo')} className="text-xs font-semibold" style={{ color: '#34d399' }}>Activar</button>
                     )}
                     {t.estado === 'activo' && (
-                      <button onClick={() => cambiarEstado(t.id, 'expirado')} className="text-xs text-yellow-400 hover:text-yellow-300">Expirar</button>
+                      <button onClick={() => cambiarEstado(t.id, 'expirado')} className="text-xs font-semibold" style={{ color: '#fbbf24' }}>Expirar</button>
                     )}
-                    <button onClick={() => eliminarToken(t.id)} className="text-xs text-red-400 hover:text-red-300">Eliminar</button>
+                    <button onClick={() => eliminarToken(t.id)} className="text-xs font-semibold" style={{ color: '#f87171' }}>Eliminar</button>
                   </div>
                 </td>
               </tr>

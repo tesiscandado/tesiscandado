@@ -1,26 +1,31 @@
 import { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import api from '../api'
 import { ConfirmModal, MapaModal } from '../components/Modal'
 
-const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 t-pri placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
-const btnCls   = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
+const btnCls = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
+const fld = 'fld rounded-lg px-4 py-2.5 w-full'
 
-const estadoColor = {
-  cerrado:     'bg-green-900 text-green-300',
-  abierto:     'bg-yellow-900 text-yellow-300',
-  alarma:      'bg-red-900 text-red-300',
-  desconocido: 'bg-gray-800 text-gray-400',
+const estadoStyle = {
+  cerrado: { background: 'rgba(16,185,129,.15)', color: '#34d399' },
+  activo:  { background: 'rgba(16,185,129,.15)', color: '#34d399' },
+  abierto: { background: 'rgba(245,158,11,.15)', color: '#fbbf24' },
+  alarma:  { background: 'rgba(239,68,68,.15)',  color: '#f87171' },
 }
 
+const container = { hidden: {}, show: { transition: { staggerChildren: 0.05 } } }
+const item = { hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0 } }
+
 export default function Candados() {
-  const [candados, setCandados]       = useState([])
-  const [form, setForm]               = useState({ codigo_dispositivo: '', descripcion: '', sim_numero: '' })
-  const [editId, setEditId]           = useState(null)
-  const [msg, setMsg]                 = useState('')
-  const [expandido, setExpandido]     = useState(null)
-  const [alertas, setAlertas]         = useState({})
-  const [mapa, setMapa]               = useState(null)   // candado a localizar
-  const [confirmar, setConfirmar]     = useState(null)   // { mensaje, onConfirm, ... }
+  const [candados, setCandados]   = useState([])
+  const [form, setForm]           = useState({ codigo_dispositivo: '', descripcion: '', sim_numero: '' })
+  const [editId, setEditId]       = useState(null)
+  const [msg, setMsg]             = useState('')
+  const [expandido, setExpandido] = useState(null)
+  const [alertas, setAlertas]     = useState({})
+  const [mapa, setMapa]           = useState(null)
+  const [confirmar, setConfirmar] = useState(null)
+  const [limite, setLimite]       = useState(5)
 
   useEffect(() => { cargar() }, [])
 
@@ -32,31 +37,17 @@ export default function Candados() {
   async function handleSubmit(e) {
     e.preventDefault()
     try {
-      if (editId) {
-        await api.put(`/candados/${editId}`, form)
-        setMsg('Candado actualizado')
-      } else {
-        await api.post('/candados/', form)
-        setMsg('Candado registrado')
-      }
-      setForm({ codigo_dispositivo: '', descripcion: '', sim_numero: '' })
-      setEditId(null)
-      cargar()
-    } catch {
-      setMsg('Error al guardar')
-    }
+      if (editId) { await api.put(`/candados/${editId}`, form); setMsg('Candado actualizado') }
+      else { await api.post('/candados/', form); setMsg('Candado registrado') }
+      setForm({ codigo_dispositivo: '', descripcion: '', sim_numero: '' }); setEditId(null); cargar()
+    } catch { setMsg('Error al guardar') }
   }
 
   function eliminar(id) {
     setConfirmar({
-      title: 'Eliminar candado',
+      title: 'Eliminar candado', danger: true, confirmText: 'Eliminar',
       mensaje: '¿Seguro que deseas eliminar este candado?\n\nSe borrará del sistema de forma permanente.',
-      confirmText: 'Eliminar',
-      danger: true,
-      onConfirm: async () => {
-        await api.delete(`/candados/${id}`)
-        cargar()
-      },
+      onConfirm: async () => { await api.delete(`/candados/${id}`); cargar() },
     })
   }
 
@@ -71,174 +62,152 @@ export default function Candados() {
 
   function atender(alarmaId, candadoId) {
     setConfirmar({
-      title: 'Atender alerta',
-      mensaje: '¿Marcar esta alerta como atendida?\n\nQuedará registrada como revisada con la fecha y hora actual.',
-      confirmText: 'Atender',
-      danger: false,
+      title: 'Atender alerta', confirmText: 'Atender',
+      mensaje: '¿Marcar esta alerta como atendida?\n\nQuedará registrada con la fecha y hora actual.',
       onConfirm: async () => {
-        try {
-          await api.patch(`/candados/alarmas/${alarmaId}/atender`)
-          const res = await api.get(`/candados/${candadoId}/alertas`)
-          setAlertas(prev => ({ ...prev, [candadoId]: res.data }))
-          cargar()
-        } catch {
-          setConfirmar({
-            title: 'Error', mensaje: 'No se pudo atender la alerta. Intenta de nuevo.',
-            confirmText: 'Entendido', onConfirm: () => {},
-          })
-        }
+        await api.patch(`/candados/alarmas/${alarmaId}/atender`)
+        const res = await api.get(`/candados/${candadoId}/alertas`)
+        setAlertas(prev => ({ ...prev, [candadoId]: res.data })); cargar()
       },
     })
   }
 
+  const conectados = candados.filter(c => c.ultima_conexion).length
+  const conBateria = candados.filter(c => c.nivel_bateria != null)
+  const batProm = conBateria.length ? Math.round(conBateria.reduce((s, c) => s + c.nivel_bateria, 0) / conBateria.length) : null
+  const visibles = limite === 'todos' ? candados : candados.slice(0, Number(limite))
+
   return (
-    <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-bold t-pri">🔒 Candados</h2>
+    <div className="flex flex-col gap-7 max-w-7xl mx-auto">
+      <h2 className="font-display text-2xl font-bold t-pri">Candados</h2>
 
-      {/* Formulario */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg">
-        <h3 className="t-pri font-semibold mb-4">{editId ? 'Editar candado' : 'Registrar candado'}</h3>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <input placeholder="Código dispositivo (ej: ESP32-001)" value={form.codigo_dispositivo} onChange={e => setForm({ ...form, codigo_dispositivo: e.target.value })} className={inputCls} required />
-          <input placeholder="Descripción (ej: Portón Principal)" value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} className={inputCls} />
-          <input placeholder="Número SIM" value={form.sim_numero} onChange={e => setForm({ ...form, sim_numero: e.target.value })} className={inputCls} />
-          {msg && <p className="text-sm text-blue-400">{msg}</p>}
-          <div className="flex gap-2">
-            <button type="submit" className={`${btnCls} flex-1 btn-accent`}>
-              {editId ? 'Guardar' : 'Registrar'}
-            </button>
-            {editId && (
-              <button type="button" onClick={() => { setEditId(null); setForm({ codigo_dispositivo: '', descripcion: '', sim_numero: '' }); setMsg('') }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 t-pri`}>
-                Cancelar
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
-
-      {/* Lista de candados */}
-      <div className="flex flex-col gap-4">
-        {candados.map(c => (
-          <div key={c.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-            {/* Cabecera del candado */}
-            <div className="p-4 flex items-start justify-between flex-wrap gap-3">
-              <div>
-                <p className="t-pri font-semibold">{c.descripcion || c.codigo_dispositivo}</p>
-                <p className="text-gray-500 text-xs mt-0.5">
-                  {c.codigo_dispositivo}
-                  {c.sim_numero ? ` · SIM: ${c.sim_numero}` : ''}
-                </p>
-                <p className="text-gray-600 text-xs mt-1">
-                  Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}
-                </p>
-                {c.latitud != null && c.longitud != null && (
-                  <a
-                    href={`https://www.google.com/maps?q=${c.latitud},${c.longitud}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 text-xs mt-1 inline-flex items-center gap-1"
-                  >
-                    📍 {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)} — ver en mapa
-                  </a>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Estado */}
-                <span className={`text-xs px-2 py-1 rounded-full capitalize ${estadoColor[c.estado] ?? estadoColor.desconocido}`}>
-                  {c.estado}
-                </span>
-                {/* Batería */}
-                {c.nivel_bateria !== null && c.nivel_bateria !== undefined && (
-                  <span className={`text-xs px-2 py-1 rounded-full ${c.nivel_bateria < 20 ? 'bg-red-900 text-red-300' : 'bg-gray-800 text-gray-400'}`}>
-                    🔋 {c.nivel_bateria}%
-                  </span>
-                )}
-                {/* Hardware */}
-                {c.estado_solenoide && <span className="text-xs bg-gray-800 text-gray-400 px-2 py-1 rounded">Solenoide: {c.estado_solenoide}</span>}
-                {c.estado_rfid && <span className="text-xs bg-gray-800 text-gray-400 px-2 py-1 rounded">RFID: {c.estado_rfid}</span>}
-                {c.estado_gsm && <span className="text-xs bg-gray-800 text-gray-400 px-2 py-1 rounded">GSM: {c.estado_gsm}</span>}
-              </div>
-
-              {/* Botones */}
-              <div className="flex gap-2">
-                <button onClick={() => { setEditId(c.id); setForm({ codigo_dispositivo: c.codigo_dispositivo, descripcion: c.descripcion ?? '', sim_numero: c.sim_numero ?? '' }); setMsg('') }} className={`${btnCls} bg-gray-700 hover:bg-gray-600 t-pri text-xs`}>
-                  Editar
-                </button>
-                <button onClick={() => setMapa(c)} className={`${btnCls} bg-blue-900/50 hover:bg-blue-900 text-blue-300 text-xs`}>
-                  📍 Localizar
-                </button>
-                <button onClick={() => verAlertas(c.id)} className={`${btnCls} text-xs ${expandido === c.id ? 'bg-red-800 text-red-200' : 'bg-red-900/50 hover:bg-red-900 text-red-300'}`}>
-                  {expandido === c.id ? 'Ocultar alertas ▲' : '🔔 Ver alertas ▼'}
-                </button>
-                <button onClick={() => eliminar(c.id)} className={`${btnCls} bg-gray-800 hover:bg-red-900 text-gray-400 hover:text-red-300 text-xs`}>
-                  Eliminar
-                </button>
-              </div>
+      {/* Form + resumen */}
+      <div className="grid lg:grid-cols-[minmax(0,460px)_1fr] gap-6 items-stretch">
+        <div className="surface-card rounded-2xl p-6">
+          <h3 className="font-display t-pri font-semibold mb-4">{editId ? 'Editar candado' : 'Registrar candado'}</h3>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <input placeholder="Código dispositivo (ej: ESP32-001)" value={form.codigo_dispositivo} onChange={e => setForm({ ...form, codigo_dispositivo: e.target.value })} className={fld} required />
+            <input placeholder="Descripción (ej: Portón Principal)" value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} className={fld} />
+            <input placeholder="Número SIM" value={form.sim_numero} onChange={e => setForm({ ...form, sim_numero: e.target.value })} className={fld} />
+            {msg && <p className="text-sm" style={{ color: 'var(--accent)' }}>{msg}</p>}
+            <div className="flex gap-2 mt-1">
+              <button type="submit" className={`${btnCls} flex-1 btn-accent`}>{editId ? 'Guardar' : 'Registrar'}</button>
+              {editId && <button type="button" onClick={() => { setEditId(null); setForm({ codigo_dispositivo: '', descripcion: '', sim_numero: '' }); setMsg('') }} className={`${btnCls} surface-soft border bd t-pri`}>Cancelar</button>}
             </div>
+          </form>
+        </div>
 
-            {/* Panel de alertas expandible */}
-            {expandido === c.id && (
-              <div className="border-t border-gray-800 bg-gray-950 p-4">
-                <h4 className="text-gray-400 text-xs uppercase tracking-wider mb-3">Alertas de este candado</h4>
-                {!alertas[c.id] ? (
-                  <p className="text-gray-500 text-sm">Cargando...</p>
-                ) : alertas[c.id].length === 0 ? (
-                  <p className="text-gray-500 text-sm">Sin alertas registradas</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {alertas[c.id].map(a => (
-                      <div key={a.id} className={`flex items-center justify-between p-3 rounded-lg border ${a.atendida ? 'border-gray-700 bg-gray-900' : 'border-red-800 bg-red-950'}`}>
-                        <div>
-                          <p className={`text-sm font-medium ${a.atendida ? 'text-gray-400' : 'text-red-300'}`}>
-                            {a.eventos?.tipos_evento?.nombre}
-                          </p>
-                          <p className="text-gray-600 text-xs">
-                            {new Date(a.eventos?.ocurrido_en).toLocaleString()}
-                            {a.atendida && a.atendida_en ? ` · Atendida: ${new Date(a.atendida_en).toLocaleString()}` : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-1 rounded-full ${a.nivel === 3 ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'}`}>
-                            Nivel {a.nivel}
-                          </span>
-                          {!a.atendida && (
-                            <button onClick={() => atender(a.id, c.id)} className={`${btnCls} bg-green-900 hover:bg-green-800 text-green-300 text-xs`}>
-                              Atender
-                            </button>
-                          )}
-                          {a.atendida && <span className="text-xs text-gray-500">✓ Atendida</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+        {/* Resumen de la flota */}
+        <div className="surface-card rounded-2xl p-6 flex flex-col">
+          <h3 className="font-display t-pri font-semibold mb-4">Resumen de la flota</h3>
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            {[
+              { l: 'Candados', v: candados.length, c: 'var(--accent)', i: '🔒' },
+              { l: 'Conectados', v: conectados, c: '#10b981', i: '📡' },
+              { l: 'Batería prom.', v: batProm != null ? `${batProm}%` : '—', c: '#fbbf24', i: '🔋' },
+            ].map(s => (
+              <div key={s.l} className="rounded-xl p-4 text-center" style={{ background: 'var(--bg)' }}>
+                <div className="text-xl mb-1">{s.i}</div>
+                <div className="font-display text-2xl font-bold" style={{ color: s.c }}>{s.v}</div>
+                <div className="t-mut text-xs mt-0.5">{s.l}</div>
               </div>
-            )}
+            ))}
           </div>
-        ))}
-        {candados.length === 0 && <p className="text-gray-500 text-sm">Sin candados registrados</p>}
+          <div className="mt-auto rounded-xl p-3 text-xs flex items-start gap-2"
+            style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+            <span>💡</span>
+            <span>Cada candado reporta batería, ubicación GPS y alarmas por red celular (SIM808). Usa “Localizar” para ver su posición en el mapa.</span>
+          </div>
+        </div>
       </div>
 
-      {/* Modal de ubicación */}
-      <MapaModal
-        open={!!mapa}
-        onClose={() => setMapa(null)}
-        titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`}
-        lat={mapa?.latitud}
-        lon={mapa?.longitud}
-      />
+      {/* Lista */}
+      <section>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <h3 className="font-display t-pri font-semibold flex items-center gap-2">
+            Candados registrados
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>{candados.length}</span>
+          </h3>
+          <label className="flex items-center gap-2 text-xs t-mut">
+            Mostrar
+            <select value={limite} onChange={e => setLimite(e.target.value)} className="fld rounded-lg px-2 py-1.5 text-xs">
+              {[5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+              <option value="todos">Todos</option>
+            </select>
+          </label>
+        </div>
 
-      {/* Modal de confirmación */}
-      <ConfirmModal
-        open={!!confirmar}
-        title={confirmar?.title}
-        mensaje={confirmar?.mensaje}
-        confirmText={confirmar?.confirmText}
-        danger={confirmar?.danger}
-        onConfirm={confirmar?.onConfirm || (() => {})}
-        onClose={() => setConfirmar(null)}
-      />
+        <motion.div variants={container} initial="hidden" animate="show" className="flex flex-col gap-4">
+          {visibles.map(c => (
+            <motion.div key={c.id} variants={item} className="surface-card glow-card rounded-2xl overflow-hidden">
+              <div className="p-5 flex items-start justify-between flex-wrap gap-3">
+                <div>
+                  <p className="t-pri font-semibold leading-tight">{c.descripcion || c.codigo_dispositivo}</p>
+                  <p className="t-mut text-xs mt-0.5">{c.codigo_dispositivo}{c.sim_numero ? ` · SIM: ${c.sim_numero}` : ''}</p>
+                  <p className="t-mut text-xs mt-1">Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}</p>
+                  {c.latitud != null && c.longitud != null && (
+                    <button onClick={() => setMapa(c)} className="text-xs mt-1 inline-flex items-center gap-1" style={{ color: 'var(--accent)' }}>
+                      📍 {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)} — ver en mapa
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs px-2.5 py-1 rounded-full capitalize font-semibold" style={estadoStyle[c.estado] ?? { background: 'var(--accent-soft)', color: 'var(--muted)' }}>{c.estado}</span>
+                  {c.nivel_bateria != null && (
+                    <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={c.nivel_bateria < 20 ? { background: 'rgba(239,68,68,.15)', color: '#f87171' } : { background: 'var(--accent-soft)', color: 'var(--accent)' }}>🔋 {c.nivel_bateria}%</span>
+                  )}
+                  {c.estado_gsm && <span className="text-xs surface-soft t-mut px-2.5 py-1 rounded-full">GSM: {c.estado_gsm}</span>}
+                </div>
+
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={() => { setEditId(c.id); setForm({ codigo_dispositivo: c.codigo_dispositivo, descripcion: c.descripcion ?? '', sim_numero: c.sim_numero ?? '' }); setMsg(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }} className={`${btnCls} surface-soft border bd t-pri text-xs`}>Editar</button>
+                  <button onClick={() => setMapa(c)} className={`${btnCls} text-xs`} style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>📍 Localizar</button>
+                  <button onClick={() => verAlertas(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.12)', color: '#f87171' }}>{expandido === c.id ? 'Ocultar alertas ▲' : '🔔 Alertas ▼'}</button>
+                  <button onClick={() => eliminar(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>Eliminar</button>
+                </div>
+              </div>
+
+              {expandido === c.id && (
+                <div className="border-t bd p-4" style={{ background: 'var(--bg)' }}>
+                  <h4 className="t-mut text-xs uppercase tracking-wider mb-3 font-semibold">Alertas de este candado</h4>
+                  {!alertas[c.id] ? <p className="t-mut text-sm">Cargando...</p>
+                    : alertas[c.id].length === 0 ? <p className="t-mut text-sm">Sin alertas registradas</p>
+                    : (
+                      <div className="flex flex-col gap-2">
+                        {alertas[c.id].map(a => (
+                          <div key={a.id} className="flex items-center justify-between p-3 rounded-xl border"
+                            style={a.atendida ? { borderColor: 'var(--line)', background: 'var(--card)' } : { borderColor: 'rgba(239,68,68,.4)', background: 'rgba(239,68,68,.08)' }}>
+                            <div>
+                              <p className="text-sm font-medium" style={{ color: a.atendida ? 'var(--muted)' : '#f87171' }}>{a.eventos?.tipos_evento?.nombre}</p>
+                              <p className="t-mut text-xs">{new Date(a.eventos?.ocurrido_en).toLocaleString()}{a.atendida && a.atendida_en ? ` · Atendida: ${new Date(a.atendida_en).toLocaleString()}` : ''}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs px-2 py-1 rounded-full font-semibold" style={a.nivel === 3 ? { background: 'rgba(239,68,68,.15)', color: '#f87171' } : { background: 'rgba(245,158,11,.15)', color: '#fbbf24' }}>Nivel {a.nivel}</span>
+                              {!a.atendida
+                                ? <button onClick={() => atender(a.id, c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(16,185,129,.15)', color: '#34d399' }}>Atender</button>
+                                : <span className="text-xs t-mut">✓ Atendida</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+              )}
+            </motion.div>
+          ))}
+          {candados.length === 0 && <p className="t-mut text-sm">Sin candados registrados</p>}
+        </motion.div>
+        {limite !== 'todos' && candados.length > Number(limite) && (
+          <p className="t-mut text-xs text-center mt-3">Mostrando {Number(limite)} de {candados.length} candados</p>
+        )}
+      </section>
+
+      <MapaModal open={!!mapa} onClose={() => setMapa(null)}
+        titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`} lat={mapa?.latitud} lon={mapa?.longitud} />
+      <ConfirmModal open={!!confirmar} title={confirmar?.title} mensaje={confirmar?.mensaje}
+        confirmText={confirmar?.confirmText} danger={confirmar?.danger}
+        onConfirm={confirmar?.onConfirm || (() => {})} onClose={() => setConfirmar(null)} />
     </div>
   )
 }
