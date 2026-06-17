@@ -33,18 +33,24 @@
   --danger:        #ff4d8d;   /* rosa neon */
 }
 
-/* ===== Estilo CYBERPUNK (solo modo oscuro) ===== */
-.dark body {
+/* ===== CYBERPUNK fuerte: SOLO landing y login (.cyber) ===== */
+.dark .cyber {
   background-image:
-    linear-gradient(rgba(34,211,238,.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(247,55,236,.03) 1px, transparent 1px);
+    linear-gradient(rgba(34,211,238,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(247,55,236,.035) 1px, transparent 1px);
   background-size: 44px 44px;
 }
-.dark .font-display { text-shadow: 0 0 18px rgba(34,211,238,.35); }
-.dark .btn-accent  { box-shadow: 0 0 16px -3px var(--accent); }
-.dark .glow-card:hover {
+.dark .cyber .font-display { text-shadow: 0 0 18px rgba(34,211,238,.4); }
+.dark .cyber .glow-card:hover {
   border-color: var(--accent);
   box-shadow: 0 0 22px -4px var(--accent), 0 0 40px -14px var(--neon2);
+}
+
+/* ===== Panel (modo oscuro) mas sutil ===== */
+.dark .btn-accent { box-shadow: 0 0 12px -5px var(--accent); }
+.dark .glow-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 14px -7px var(--accent);
 }
 
 html, body, #root { height: 100%; }

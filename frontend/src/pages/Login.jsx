@@ -58,8 +58,8 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4"
-      style={{ background: 'var(--bg)', color: 'var(--text)' }}>
+    <div className="cyber min-h-screen flex items-center justify-center relative overflow-hidden px-4"
+      style={{ backgroundColor: 'var(--bg)', color: 'var(--text)' }}>
       <PlexusBackground />
       <div className="pointer-events-none absolute inset-0 opacity-50">
         <div className="animate-blob absolute -top-20 -left-20 w-80 h-80 rounded-full blur-3xl"
