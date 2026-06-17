@@ -18,18 +18,33 @@
 }
 
 .dark {
-  --bg:            #050d0b;
-  --surface:       #0c1a16;
-  --card:          #142822;
-  --line:          #244a3f;
-  --text:          #eafaf5;
-  --muted:         #8aa39b;
-  --accent:        #2dd4bf;
-  --accent-strong: #14b8a6;
-  --accent-soft:   #0f3d35;
-  --ok:            #34d399;
-  --warn:          #fbbf24;
-  --danger:        #f87171;
+  --bg:            #070512;
+  --surface:       #0e0b20;
+  --card:          #141029;
+  --line:          #2e2360;
+  --text:          #eafcff;
+  --muted:         #8f88c2;
+  --accent:        #22d3ee;   /* cian neon */
+  --accent-strong: #0bb6d6;
+  --accent-soft:   #10243a;
+  --neon2:         #f637ec;   /* magenta neon */
+  --ok:            #2ee6a6;
+  --warn:          #ffcf4d;
+  --danger:        #ff4d8d;   /* rosa neon */
+}
+
+/* ===== Estilo CYBERPUNK (solo modo oscuro) ===== */
+.dark body {
+  background-image:
+    linear-gradient(rgba(34,211,238,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(247,55,236,.03) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+.dark .font-display { text-shadow: 0 0 18px rgba(34,211,238,.35); }
+.dark .btn-accent  { box-shadow: 0 0 16px -3px var(--accent); }
+.dark .glow-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 22px -4px var(--accent), 0 0 40px -14px var(--neon2);
 }
 
 html, body, #root { height: 100%; }
