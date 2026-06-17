@@ -26,6 +26,9 @@ export default function Candados() {
   const [mapa, setMapa]           = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [limite, setLimite]       = useState(5)
+  const [pagAlertas, setPagAlertas] = useState({})   // pagina actual de alertas por candado
+
+  const POR_PAGINA = 5
 
   useEffect(() => { cargar() }, [])
 
@@ -173,25 +176,45 @@ export default function Candados() {
                   <h4 className="t-mut text-xs uppercase tracking-wider mb-3 font-semibold">Alertas de este candado</h4>
                   {!alertas[c.id] ? <p className="t-mut text-sm">Cargando...</p>
                     : alertas[c.id].length === 0 ? <p className="t-mut text-sm">Sin alertas registradas</p>
-                    : (
-                      <div className="flex flex-col gap-2">
-                        {alertas[c.id].map(a => (
-                          <div key={a.id} className="flex items-center justify-between p-3 rounded-xl border"
-                            style={a.atendida ? { borderColor: 'var(--line)', background: 'var(--card)' } : { borderColor: 'rgba(239,68,68,.4)', background: 'rgba(239,68,68,.08)' }}>
-                            <div>
-                              <p className="text-sm font-medium" style={{ color: a.atendida ? 'var(--muted)' : '#f87171' }}>{a.eventos?.tipos_evento?.nombre}</p>
-                              <p className="t-mut text-xs">{new Date(a.eventos?.ocurrido_en).toLocaleString()}{a.atendida && a.atendida_en ? ` · Atendida: ${new Date(a.atendida_en).toLocaleString()}` : ''}</p>
+                    : (() => {
+                        const orden = [...alertas[c.id]].sort(
+                          (a, b) => new Date(b.eventos?.ocurrido_en || 0) - new Date(a.eventos?.ocurrido_en || 0)
+                        )
+                        const totalPag = Math.ceil(orden.length / POR_PAGINA)
+                        const pag = Math.min(pagAlertas[c.id] || 0, totalPag - 1)
+                        const vis = orden.slice(pag * POR_PAGINA, pag * POR_PAGINA + POR_PAGINA)
+                        const irPag = (p) => setPagAlertas(prev => ({ ...prev, [c.id]: p }))
+                        return (
+                          <>
+                            <div className="flex flex-col gap-2">
+                              {vis.map(a => (
+                                <div key={a.id} className="flex items-center justify-between p-3 rounded-xl border"
+                                  style={a.atendida ? { borderColor: 'var(--line)', background: 'var(--card)' } : { borderColor: 'rgba(239,68,68,.4)', background: 'rgba(239,68,68,.08)' }}>
+                                  <div>
+                                    <p className="text-sm font-medium" style={{ color: a.atendida ? 'var(--muted)' : '#f87171' }}>{a.eventos?.tipos_evento?.nombre}</p>
+                                    <p className="t-mut text-xs">{new Date(a.eventos?.ocurrido_en).toLocaleString()}{a.atendida && a.atendida_en ? ` · Atendida: ${new Date(a.atendida_en).toLocaleString()}` : ''}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs px-2 py-1 rounded-full font-semibold" style={a.nivel === 3 ? { background: 'rgba(239,68,68,.15)', color: '#f87171' } : { background: 'rgba(245,158,11,.15)', color: '#fbbf24' }}>Nivel {a.nivel}</span>
+                                    {!a.atendida
+                                      ? <button onClick={() => atender(a.id, c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(16,185,129,.15)', color: '#34d399' }}>Atender</button>
+                                      : <span className="text-xs t-mut">✓ Atendida</span>}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs px-2 py-1 rounded-full font-semibold" style={a.nivel === 3 ? { background: 'rgba(239,68,68,.15)', color: '#f87171' } : { background: 'rgba(245,158,11,.15)', color: '#fbbf24' }}>Nivel {a.nivel}</span>
-                              {!a.atendida
-                                ? <button onClick={() => atender(a.id, c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(16,185,129,.15)', color: '#34d399' }}>Atender</button>
-                                : <span className="text-xs t-mut">✓ Atendida</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                            {totalPag > 1 && (
+                              <div className="flex items-center justify-center gap-3 mt-3">
+                                <button disabled={pag === 0} onClick={() => irPag(pag - 1)}
+                                  className={`${btnCls} text-xs surface-soft border bd t-pri disabled:opacity-40`}>‹ Anterior</button>
+                                <span className="t-mut text-xs">Página {pag + 1} de {totalPag}</span>
+                                <button disabled={pag >= totalPag - 1} onClick={() => irPag(pag + 1)}
+                                  className={`${btnCls} text-xs surface-soft border bd t-pri disabled:opacity-40`}>Siguiente ›</button>
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
                 </div>
               )}
             </motion.div>
