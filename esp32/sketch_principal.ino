@@ -239,6 +239,15 @@ void reportar(int evento, int salud, const char* status) {
 }
 
 // -------------------------
+// BUZZER ACTIVO (solo on/off, sin frecuencia)
+// -------------------------
+void beep(int ms) {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(ms);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+// -------------------------
 // SOLENOIDE
 // -------------------------
 void abrirSolenoide() {
@@ -395,7 +404,8 @@ void setup() {
   keyNDEF.keyByte[3]=0xF7; keyNDEF.keyByte[4]=0xD3; keyNDEF.keyByte[5]=0xF7;
   for (byte i=0;i<6;i++) keyFactory.keyByte[i]=0xFF;
 
-  ledcAttach(BUZZER_PIN, 1000, 8);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);   // buzzer ACTIVO (2 pines): HIGH=suena, LOW=silencio
   delay(500);
   valorBase = analogRead(HALL_ANALOG);
 
@@ -479,12 +489,12 @@ void loop() {
       String token = leerToken();
       Serial.println("Token: [" + token + "]");
       if (token.length() >= 4 && tokenAutorizado(token)) {
-        ledcWriteTone(BUZZER_PIN, 1000); delay(200); ledcWriteTone(BUZZER_PIN, 0);
+        beep(180);   // acceso concedido: 1 beep corto
         Serial.println("ACCESO CONCEDIDO");
         reportar(1, saludHW, "Acceso concedido");   // evento 1
         abrirSolenoide();
       } else {
-        ledcWriteTone(BUZZER_PIN, 400); delay(700); ledcWriteTone(BUZZER_PIN, 0);
+        beep(150); delay(120); beep(150); delay(120); beep(150);   // denegado: 3 beeps
         Serial.println("ACCESO DENEGADO");
         reportar(2, saludHW, "Acceso denegado");     // evento 2
       }
@@ -553,10 +563,10 @@ void loop() {
   bool alarma = reedAlerta || hallAlerta || mpuAlerta;
   static unsigned long ultimoCambio = 0; static bool sirena = false;
   if (alarma) {
-    if (millis() - ultimoCambio > 150) { ultimoCambio = millis(); sirena = !sirena; }
-    ledcWriteTone(BUZZER_PIN, sirena ? 1200 : 2500);
+    if (millis() - ultimoCambio > 250) { ultimoCambio = millis(); sirena = !sirena; }
+    digitalWrite(BUZZER_PIN, sirena ? HIGH : LOW);   // alarma: beep intermitente
   } else {
-    ledcWriteTone(BUZZER_PIN, 0);
+    digitalWrite(BUZZER_PIN, LOW);
   }
 
   // ===== SYNC de tokens autorizados (cada 60s) =====
