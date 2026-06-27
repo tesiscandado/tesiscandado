@@ -437,7 +437,7 @@ void setup() {
     delay(3000);
   }
   Serial.println(modem.isGprsConnected() ? "OK" : "FALLO");
-  // modem.enableGPS();   // GPS DESACTIVADO temporalmente para probar si interfiere con GPRS
+  modem.enableGPS();   // GPS encendido (en el SIM808, GPS y GPRS conviven sin problema)
 
   // Abrir bearer GPRS para el motor HTTP nativo del SIM808
   enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
@@ -577,7 +577,7 @@ void loop() {
 
   // ===== TELEMETRIA periodica (GPS + bateria) =====
   if (millis() - ultimoPost >= INTERVALO_POST) {
-    // actualizarGPS();   // GPS desactivado para la prueba
+    actualizarGPS();   // lee la posicion GPS y actualiza ultLat/ultLon (para la ruta)
     ultBat = modem.getBattPercent();
     postThingSpeak(0, saludHW, "heartbeat");
   }
