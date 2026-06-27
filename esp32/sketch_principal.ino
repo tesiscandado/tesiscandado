@@ -331,8 +331,10 @@ void actualizarGPS() {
 void sincronizarTokens() {
   if (!modem.isGprsConnected()) return;
 
+  // "List All Commands": devuelve los comandos en cola SIN consumirlos.
+  // El backend deja 1 comando = lista CSV de tokens en "command_string".
   String url = "http://api.thingspeak.com/talkbacks/" TALKBACK_ID
-               "/commands/last.txt?api_key=" TALKBACK_KEY;
+               "/commands.json?api_key=" TALKBACK_KEY;
 
   enviarAT("AT+HTTPTERM", 1500);
   delay(100);
@@ -351,22 +353,19 @@ void sincronizarTokens() {
   }
   if (code != 200) return;   // si fallo, se conserva la lista anterior
 
-  // Cuerpo:  +HTTPREAD: <len>\r\n<CSV>\r\nOK
-  int p = resp.indexOf("+HTTPREAD:");
-  if (p < 0) return;
-  int nl = resp.indexOf('\n', p);
-  if (nl < 0) return;
-  String cuerpo = resp.substring(nl + 1);
-  int okp = cuerpo.lastIndexOf("OK");
-  if (okp >= 0) cuerpo = cuerpo.substring(0, okp);
-  cuerpo.trim();
-
-  // Cola vacia -> sin tokens autorizados
-  if (cuerpo.length() == 0 || cuerpo == "-1") {
+  // Extraer el CSV de  "command_string":"LCBN8CC,AB12CD3"
+  int k = resp.indexOf("\"command_string\":\"");
+  if (k < 0) {                      // cola vacia -> sin tokens autorizados
     nTokensValidos = 0;
     Serial.println("Tokens: lista vacia");
     return;
   }
+  k += 18;                          // longitud de  "command_string":"
+  int fin = resp.indexOf('"', k);
+  if (fin < 0) return;
+  String cuerpo = resp.substring(k, fin);
+  cuerpo.trim();
+  if (cuerpo.length() == 0) { nTokensValidos = 0; return; }
 
   // Separar el CSV en la lista
   int n = 0, ini = 0;
