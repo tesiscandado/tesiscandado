@@ -79,11 +79,13 @@ export default function Ruta() {
   const enRango = (idx) => rango && idx >= rango[0] && idx <= rango[1]
 
   async function etiquetar(nivel) {
-    if (!rango) { setMsg('Selecciona un tramo: toca 2 puntos en el mapa.'); return }
+    if (!rango || rango[0] === rango[1]) { setMsg('Toca 2 puntos distintos para elegir un tramo.'); return }
+    const [lo, hi] = rango
+    // Se etiquetan los puntos finales de cada segmento del tramo (del 2do al ultimo),
+    // NO el primero: asi el color cubre exactamente el tramo elegido y no el segmento vecino.
+    const ids = puntos.slice(lo + 1, hi + 1).map(p => p.id)
     try {
-      await api.patch(`/candados/${candadoId}/ruta/etiqueta`, {
-        nivel, desde_id: puntos[rango[0]].id, hasta_id: puntos[rango[1]].id,
-      })
+      await api.patch(`/candados/${candadoId}/ruta/etiqueta`, { nivel, ids })
       setMsg(nivel === 'limpiar' ? 'Tramo sin etiqueta' : `Tramo marcado: ${nivel}`)
       setSelA(null); setSelB(null)
       cargarRuta()
@@ -110,7 +112,9 @@ export default function Ruta() {
     segmentos.push({
       key: i,
       positions: [[Number(a.latitud), Number(a.longitud)], [Number(b.latitud), Number(b.longitud)]],
-      color: colorDe(b.nivel_seguridad || a.nivel_seguridad),
+      // Cada segmento se colorea SOLO por su punto final (b). Asi un tramo no se
+      // "desborda" al segmento vecino que sale del ultimo punto.
+      color: colorDe(b.nivel_seguridad),
     })
   }
   const center = puntos.length ? [Number(puntos[0].latitud), Number(puntos[0].longitud)] : [4.711, -74.072]
