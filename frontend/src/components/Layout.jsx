@@ -8,6 +8,7 @@ const navItems = [
   { to: '/panel/operadores',     label: 'Operadores' },
   { to: '/panel/autorizaciones', label: 'Autorizaciones' },
   { to: '/panel/candados',       label: 'Candados' },
+  { to: '/panel/ruta',           label: 'Ruta' },
   { to: '/panel/registros',      label: 'Registros' },
 ]
 

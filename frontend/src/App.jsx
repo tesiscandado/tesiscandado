@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Operadores from './pages/Operadores'
 import Autorizaciones from './pages/Autorizaciones'
 import Candados from './pages/Candados'
+import Ruta from './pages/Ruta'
 import Registros from './pages/Registros'
 import Layout from './components/Layout'
 
@@ -28,6 +29,7 @@ export default function App() {
               <Route path="operadores" element={<Operadores />} />
               <Route path="autorizaciones" element={<Autorizaciones />} />
               <Route path="candados" element={<Candados />} />
+              <Route path="ruta" element={<Ruta />} />
               <Route path="registros" element={<Registros />} />
             </Route>
           </Routes>
