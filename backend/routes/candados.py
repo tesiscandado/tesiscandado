@@ -245,3 +245,14 @@ def ruta_demo(id: int, lat: float = 4.711000, lon: float = -74.072100, n: int = 
         })
     supabase.table("posiciones").insert(filas).execute()
     return {"ok": True, "insertados": len(filas)}
+
+
+@router.post("/{id}/sync-tokens")
+def sync_tokens(id: int):
+    """Publica manualmente la lista de tokens activos del candado en el TalkBack
+    de ThingSpeak (lo que el ESP32 descargara). Util para probar."""
+    from tokens_sync import publicar_tokens
+    csv = publicar_tokens(id)
+    if csv is None:
+        raise HTTPException(status_code=502, detail="No se pudo publicar en ThingSpeak")
+    return {"ok": True, "tokens": csv.split(",") if csv else []}

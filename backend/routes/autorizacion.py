@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from main import supabase
+from tokens_sync import publicar_tokens
 import secrets
 
 router = APIRouter()
@@ -128,6 +129,8 @@ def crear_token_fisico(data: TokenFisicoInput):
         "estado":       "activo",
         "generado_por": admin.data["id"],
     }).execute()
+    try: publicar_tokens(data.candado_id)   # actualizar lista en el candado
+    except Exception: pass
     return res.data[0]
 
 
@@ -191,12 +194,18 @@ def cambiar_estado_token(id: int, estado: str):
     res = supabase.table("tokens_sincronizacion").update({"estado": estado}).eq("id", id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Token no encontrado")
+    try: publicar_tokens(res.data[0]["candado_id"])   # token entro/salio de 'activo'
+    except Exception: pass
     return res.data[0]
 
 
 @router.delete("/tokens/{id}")
 def eliminar_token(id: int):
+    row = supabase.table("tokens_sincronizacion").select("candado_id").eq("id", id).limit(1).execute()
     supabase.table("tokens_sincronizacion").delete().eq("id", id).execute()
+    if row.data:
+        try: publicar_tokens(row.data[0]["candado_id"])
+        except Exception: pass
     return {"ok": True}
 
 
