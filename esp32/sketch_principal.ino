@@ -113,10 +113,20 @@ MFRC522::MIFARE_Key keyFactory;
 
 // -------------------------
 // TOKENS AUTORIZADOS (validacion local offline)
-// Se sincronizaran luego via TalkBack. Por ahora, lista fija.
+// La lista REAL se descarga del TalkBack de ThingSpeak (sincronizarTokens()).
+// TOKENS_SEED es solo un respaldo inicial por si aun no se ha sincronizado.
 // -------------------------
-const char* TOKENS_OK[] = { "LCBN8CC", "TK00001" };   // <- pon aqui los tokens validos (de la web)
-const int   N_TOKENS    = sizeof(TOKENS_OK) / sizeof(TOKENS_OK[0]);
+#define TALKBACK_ID  "57245"
+#define TALKBACK_KEY "M2015WR5B484N7IG"
+#define MAX_TOKENS   30
+
+const char* TOKENS_SEED[] = { "LCBN8CC", "TK00001" };   // respaldo inicial
+const int   N_SEED        = sizeof(TOKENS_SEED) / sizeof(TOKENS_SEED[0]);
+
+String tokensValidos[MAX_TOKENS];      // lista vigente (se llena al sincronizar)
+int    nTokensValidos = 0;
+unsigned long ultimoSyncTokens = 0;
+const unsigned long INTERVALO_SYNC_TOKENS = 60000;   // descargar lista cada 60s
 
 // -------------------------
 // ESTADO
@@ -296,8 +306,8 @@ String leerToken() {
 }
 
 bool tokenAutorizado(String token) {
-  for (int i = 0; i < N_TOKENS; i++) {
-    if (token.equalsIgnoreCase(TOKENS_OK[i])) return true;
+  for (int i = 0; i < nTokensValidos; i++) {
+    if (token.equalsIgnoreCase(tokensValidos[i])) return true;
   }
   return false;
 }
@@ -311,6 +321,64 @@ void actualizarGPS() {
     ultLat = lat; ultLon = lon;
     Serial.printf("GPS: %.6f, %.6f\n", lat, lon);
   }
+}
+
+// -------------------------
+// SINCRONIZAR TOKENS (TalkBack de ThingSpeak, por HTTP)
+// Descarga la lista de tokens validos que publica el backend. Si falla,
+// CONSERVA la lista anterior (el candado sigue funcionando offline).
+// -------------------------
+void sincronizarTokens() {
+  if (!modem.isGprsConnected()) return;
+
+  String url = "http://api.thingspeak.com/talkbacks/" TALKBACK_ID
+               "/commands/last.txt?api_key=" TALKBACK_KEY;
+
+  enviarAT("AT+HTTPTERM", 1500);
+  delay(100);
+  if (enviarAT("AT+HTTPINIT").indexOf("OK") < 0) return;
+  enviarAT("AT+HTTPPARA=\"CID\",1");
+  enviarAT("AT+HTTPPARA=\"URL\",\"" + url + "\"");
+  String act  = enviarAT("AT+HTTPACTION=0", 15000, "+HTTPACTION:");   // GET
+  String resp = enviarAT("AT+HTTPREAD", 3000, "@@@");                 // leer cuerpo (3s)
+  enviarAT("AT+HTTPTERM", 1500);
+
+  // Verificar HTTP 200
+  int code = 0, ia = act.indexOf("+HTTPACTION:");
+  if (ia >= 0) {
+    int c1 = act.indexOf(',', ia), c2 = act.indexOf(',', c1 + 1);
+    if (c1 >= 0 && c2 >= 0) code = act.substring(c1 + 1, c2).toInt();
+  }
+  if (code != 200) return;   // si fallo, se conserva la lista anterior
+
+  // Cuerpo:  +HTTPREAD: <len>\r\n<CSV>\r\nOK
+  int p = resp.indexOf("+HTTPREAD:");
+  if (p < 0) return;
+  int nl = resp.indexOf('\n', p);
+  if (nl < 0) return;
+  String cuerpo = resp.substring(nl + 1);
+  int okp = cuerpo.lastIndexOf("OK");
+  if (okp >= 0) cuerpo = cuerpo.substring(0, okp);
+  cuerpo.trim();
+
+  // Cola vacia -> sin tokens autorizados
+  if (cuerpo.length() == 0 || cuerpo == "-1") {
+    nTokensValidos = 0;
+    Serial.println("Tokens: lista vacia");
+    return;
+  }
+
+  // Separar el CSV en la lista
+  int n = 0, ini = 0;
+  while (ini <= (int)cuerpo.length() && n < MAX_TOKENS) {
+    int coma = cuerpo.indexOf(',', ini);
+    if (coma < 0) coma = cuerpo.length();
+    String tk = cuerpo.substring(ini, coma); tk.trim();
+    if (tk.length() > 0) tokensValidos[n++] = tk;
+    ini = coma + 1;
+  }
+  nTokensValidos = n;
+  Serial.printf("Tokens sincronizados: %d\n", nTokensValidos);
 }
 
 // -------------------------
@@ -367,6 +435,11 @@ void setup() {
   enviarAT("AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"");
   enviarAT("AT+SAPBR=1,1", 10000);
   enviarAT("AT+SAPBR=2,1");
+
+  // Tokens: respaldo inicial + primera descarga desde el TalkBack
+  for (int i = 0; i < N_SEED && i < MAX_TOKENS; i++) tokensValidos[nTokensValidos++] = TOKENS_SEED[i];
+  sincronizarTokens();
+  ultimoSyncTokens = millis();
 
   // Lectura inicial de bateria (AT+CBC del SIM808)
   ultBat = modem.getBattPercent();
@@ -485,6 +558,12 @@ void loop() {
     ledcWriteTone(BUZZER_PIN, sirena ? 1200 : 2500);
   } else {
     ledcWriteTone(BUZZER_PIN, 0);
+  }
+
+  // ===== SYNC de tokens autorizados (cada 60s) =====
+  if (millis() - ultimoSyncTokens >= INTERVALO_SYNC_TOKENS) {
+    ultimoSyncTokens = millis();
+    sincronizarTokens();
   }
 
   // ===== TELEMETRIA periodica (GPS + bateria) =====
