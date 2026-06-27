@@ -22,6 +22,13 @@ class TelemetriaInput(BaseModel):
     estado_solenoide: Optional[str] = None
 
 
+class EtiquetaRutaInput(BaseModel):
+    nivel:     str                      # 'segura' | 'media' | 'peligrosa' | 'limpiar'
+    ids:       Optional[list[int]] = None   # puntos concretos a etiquetar
+    desde_id:  Optional[int] = None         # o un rango (inicio del tramo)
+    hasta_id:  Optional[int] = None         # ...fin del tramo
+
+
 # ── Candados ─────────────────────────────────────────────────
 @router.get("/")
 def listar_candados():
@@ -147,3 +154,94 @@ def atender_alarma(id: int):
     if not res.data:
         raise HTTPException(status_code=404, detail="Alarma no encontrada")
     return res.data[0]
+
+
+# ── RUTA / RECORRIDO del candado ─────────────────────────────
+@router.get("/{id}/ruta")
+def ruta_candado(id: int, limite: int = 2000):
+    """Devuelve el recorrido (rastro GPS ordenado) de un candado y los puntos
+    donde ocurrieron alarmas (para el marcado automatico de peligro)."""
+    # Sincroniza con ThingSpeak para traer los puntos mas recientes
+    try:
+        from routes.thingspeak import sync_thingspeak
+        sync_thingspeak()
+    except Exception:
+        pass
+
+    puntos = (
+        supabase.table("posiciones")
+        .select("id, latitud, longitud, capturado_en, nivel_seguridad")
+        .eq("candado_id", id)
+        .order("capturado_en")
+        .limit(limite)
+        .execute()
+    )
+
+    # Alarmas con coordenadas (marcado automatico de tramos peligrosos)
+    alarmas = []
+    tipos = supabase.table("tipos_evento").select("id").eq("es_alarma", True).execute()
+    ids_alarma = [t["id"] for t in tipos.data] if tipos.data else []
+    if ids_alarma:
+        ev = (
+            supabase.table("eventos")
+            .select("id, latitud, longitud, ocurrido_en, tipos_evento(nombre, severidad)")
+            .eq("candado_id", id)
+            .in_("tipo_evento_id", ids_alarma)
+            .not_.is_("latitud", "null")
+            .order("ocurrido_en")
+            .execute()
+        )
+        alarmas = ev.data
+
+    return {"puntos": puntos.data, "alarmas": alarmas}
+
+
+@router.patch("/{id}/ruta/etiqueta")
+def etiquetar_ruta(id: int, data: EtiquetaRutaInput):
+    """Marca un tramo de la ruta como segura / media / peligrosa.
+    Acepta una lista de ids de puntos, o un rango (desde_id, hasta_id)."""
+    if data.nivel not in ("segura", "media", "peligrosa", "limpiar"):
+        raise HTTPException(status_code=400, detail="Nivel invalido")
+
+    valor = None if data.nivel == "limpiar" else data.nivel
+    q = supabase.table("posiciones").update({"nivel_seguridad": valor}).eq("candado_id", id)
+
+    if data.ids:
+        q = q.in_("id", data.ids)
+    elif data.desde_id is not None and data.hasta_id is not None:
+        lo, hi = min(data.desde_id, data.hasta_id), max(data.desde_id, data.hasta_id)
+        q = q.gte("id", lo).lte("id", hi)
+    else:
+        raise HTTPException(status_code=400, detail="Indica 'ids' o un rango (desde_id, hasta_id)")
+
+    res = q.execute()
+    return {"ok": True, "actualizados": len(res.data) if res.data else 0}
+
+
+@router.delete("/{id}/ruta")
+def borrar_ruta(id: int):
+    """Borra todo el rastro de un candado (util para empezar una prueba limpia)."""
+    supabase.table("posiciones").delete().eq("candado_id", id).execute()
+    return {"ok": True}
+
+
+@router.post("/{id}/ruta/demo")
+def ruta_demo(id: int, lat: float = 4.711000, lon: float = -74.072100, n: int = 30):
+    """Inserta un recorrido de PRUEBA (para desarrollar la vista sin el hardware).
+    Genera n puntos encadenados a partir de un centro (por defecto, Bogota)."""
+    import random
+    from datetime import datetime, timezone, timedelta
+    base = datetime.now(timezone.utc) - timedelta(minutes=n)
+    filas = []
+    clat, clon = lat, lon
+    for i in range(n):
+        clat += random.uniform(-0.0006, 0.0011)
+        clon += random.uniform(-0.0006, 0.0011)
+        filas.append({
+            "candado_id":   id,
+            "latitud":      round(clat, 6),
+            "longitud":     round(clon, 6),
+            "capturado_en": (base + timedelta(minutes=i)).isoformat(),
+        })
+    supabase.table("posiciones").insert(filas).execute()
+    return {"ok": True, "insertados": len(filas)}

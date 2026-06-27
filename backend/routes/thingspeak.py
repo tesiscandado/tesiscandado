@@ -46,7 +46,7 @@ SALUD_MAP = {
 }
 
 
-def _crear_evento(candado_id, codigo_evento):
+def _crear_evento(candado_id, codigo_evento, lat=None, lon=None):
     tipo = (
         supabase.table("tipos_evento")
         .select("id, es_alarma, severidad")
@@ -57,10 +57,14 @@ def _crear_evento(candado_id, codigo_evento):
     if not tipo.data:
         return
     t = tipo.data[0]
-    ev = supabase.table("eventos").insert({
-        "candado_id":     candado_id,
-        "tipo_evento_id": t["id"],
-    }).execute()
+    fila = {"candado_id": candado_id, "tipo_evento_id": t["id"]}
+    # Guardar coordenadas en el evento: sirven para marcar la ruta como peligrosa
+    # (marcado automatico) en el punto exacto donde salto la alarma.
+    if lat is not None:
+        fila["latitud"] = lat
+    if lon is not None:
+        fila["longitud"] = lon
+    ev = supabase.table("eventos").insert(fila).execute()
     if t.get("es_alarma") and ev.data:
         supabase.table("alarmas").insert({
             "evento_id": ev.data[0]["id"],
@@ -134,15 +138,25 @@ def _hacer_sync():
         if eid <= last_entry:
             continue
 
-        # Eventos nuevos
+        lat_f = _num(f.get("field1"))
+        lon_f = _num(f.get("field2"))
+
+        # NUEVO: guardar el punto en la ruta (rastro GPS del recorrido)
+        if lat_f is not None and lon_f is not None:
+            pos = {"candado_id": candado_id, "latitud": lat_f, "longitud": lon_f}
+            if f.get("created_at"):
+                pos["capturado_en"] = f.get("created_at")
+            supabase.table("posiciones").insert(pos).execute()
+
+        # Eventos nuevos (las alarmas se guardan con las coordenadas del punto)
         ev_code  = int(_num(f.get("field4"))) if _num(f.get("field4")) is not None else 0
         sal_code = int(_num(f.get("field5"))) if _num(f.get("field5")) is not None else 0
 
         if ev_code in EVENTO_MAP:
-            _crear_evento(candado_id, EVENTO_MAP[ev_code])
+            _crear_evento(candado_id, EVENTO_MAP[ev_code], lat_f, lon_f)
             procesados += 1
         if sal_code in SALUD_MAP:
-            _crear_evento(candado_id, SALUD_MAP[sal_code])
+            _crear_evento(candado_id, SALUD_MAP[sal_code], lat_f, lon_f)
             procesados += 1
 
         if eid > max_entry:
