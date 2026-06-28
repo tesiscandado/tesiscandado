@@ -16,11 +16,11 @@
 
   =====================================================================
   MAPA DE CONEXIONES (NodeMCU ESP8266, todo a GND comun)
-    RC522:  SCK->D5  MISO->D6  MOSI->D7  SS->D4  RST->3.3V   3.3V/GND
+    RC522:  SCK->D5  MISO->D6  MOSI->D7  SS->D0  RST->3.3V   3.3V/GND
     SIM808: TXD->D1  RXD->D2   VBAT->bateria   GND comun  (antena GPS al cielo)
-    REED:   D0  (+ resistencia 10k de D0 a 3.3V)  otro extremo a GND
+    REED:   D4  (+ resistencia 10k de D4 a 3.3V)  otro extremo a GND
     RELE XY-J02 (solenoide): Trigger -> D3   (config modo OP, 3.0s)
-    (sin buzzer)
+    (sin buzzer; D8 libre)
   =====================================================================
 */
 
@@ -50,11 +50,11 @@ const char TS_WRITEKEY[] = "C2GVMKCV7AYYEQM8";
 // -------------------------
 #define SIM_RX     D1    // GPIO5  <- SIM808 TXD
 #define SIM_TX     D2    // GPIO4  -> SIM808 RXD
-#define SS_PIN     D4    // GPIO2  RC522 SS
-#define RST_PIN    255   // RC522 RST atado a 3.3V -> reset por software (evita boot loop del GPIO15)
-#define REED_PIN   D0    // GPIO16 (pull-up EXTERNO de 10k a 3.3V)
+#define SS_PIN     D0    // GPIO16 RC522 SS (NO es strapping pin — seguro de usar)
+#define RST_PIN    255   // RC522 RST atado a 3.3V -> reset por software
+#define REED_PIN   D4    // GPIO2  sensor puerta (pull-up EXTERNO de 10k a 3.3V — strapping, pero OK con pull-up)
 #define RELAY_PIN  D3    // GPIO0  XY-J02 trigger
-// (sin buzzer; D8 queda libre)
+// D8 (GPIO15) queda libre
 
 // XY-J02 ACTIVO EN BAJO (IN=LOW -> relay ON). Cambia a true si tu modulo es al reves.
 #define RELAY_ACTIVO_ALTO false
