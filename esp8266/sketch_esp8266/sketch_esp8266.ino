@@ -16,11 +16,11 @@
 
   =====================================================================
   MAPA DE CONEXIONES (NodeMCU ESP8266, todo a GND comun)
-    RC522:  SCK->D5  MISO->D6  MOSI->D7  SS->D4  RST->3.3V   3.3V/GND
+    RC522:  SCK->D5  MISO->D6  MOSI->D7  SS->D4  RST->D8   3.3V/GND
     SIM808: TXD->D1  RXD->D2   VBAT->bateria   GND comun  (antena GPS al cielo)
     REED:   D0  (+ resistencia 10k de D0 a 3.3V)  otro extremo a GND
-    BUZZER (activo, 2 pines): + -> D8   - -> GND
     RELE XY-J02 (solenoide): Trigger -> D3   (config modo OP, 3.0s)
+    (sin buzzer)
   =====================================================================
 */
 
@@ -51,10 +51,10 @@ const char TS_WRITEKEY[] = "C2GVMKCV7AYYEQM8";
 #define SIM_RX     D1    // GPIO5  <- SIM808 TXD
 #define SIM_TX     D2    // GPIO4  -> SIM808 RXD
 #define SS_PIN     D4    // GPIO2  RC522 SS
-#define RST_PIN    255   // RC522 RST atado a 3.3V -> reset por software (UNUSED)
+#define RST_PIN    D8    // GPIO15 RC522 RST (reset por hardware)
 #define REED_PIN   D0    // GPIO16 (pull-up EXTERNO de 10k a 3.3V)
-#define BUZZER_PIN D8    // GPIO15 buzzer ACTIVO
 #define RELAY_PIN  D3    // GPIO0  XY-J02 trigger
+// (buzzer retirado; su pin D8 ahora lo usa el RST del RC522)
 
 // XY-J02 ACTIVO EN BAJO (IN=LOW -> relay ON). Cambia a true si tu modulo es al reves.
 #define RELAY_ACTIVO_ALTO false
@@ -163,11 +163,6 @@ void reportar(int evento, int salud, const char* status) {
   if (millis() - ultimoPost < MIN_ENTRE_POST) return;
   postThingSpeak(evento, salud, status);
 }
-
-// -------------------------
-// BUZZER ACTIVO (on/off)
-// -------------------------
-void beep(int ms) { digitalWrite(BUZZER_PIN, HIGH); delay(ms); digitalWrite(BUZZER_PIN, LOW); }
 
 // -------------------------
 // SOLENOIDE
@@ -292,7 +287,6 @@ void sincronizarTokens() {
 void setup() {
   Serial.begin(115200);
   pinMode(REED_PIN, INPUT);          // GPIO16: pull-up EXTERNO de 10k
-  pinMode(BUZZER_PIN, OUTPUT); digitalWrite(BUZZER_PIN, LOW);
   pinMode(RELAY_PIN, OUTPUT);  digitalWrite(RELAY_PIN, RELAY_OFF);
 
   keyNDEF.keyByte[0]=0xD3; keyNDEF.keyByte[1]=0xF7; keyNDEF.keyByte[2]=0xD3;
@@ -358,12 +352,10 @@ void loop() {
       String token = leerToken();
       Serial.println("Token: [" + token + "]");
       if (token.length() >= 4 && tokenAutorizado(token)) {
-        beep(180);
         Serial.println("ACCESO CONCEDIDO");
         reportar(1, saludHW, "Acceso concedido");
         abrirSolenoide();
       } else {
-        beep(150); delay(120); beep(150); delay(120); beep(150);
         Serial.println("ACCESO DENEGADO");
         reportar(2, saludHW, "Acceso denegado");
       }
@@ -384,15 +376,6 @@ void loop() {
       reportar(14, saludHW, "Alarma resuelta");
     }
     reedEstadoAnt = reedDetecta;
-  }
-
-  // ===== BUZZER (alarma intermitente si REED activo) =====
-  static unsigned long ultimoCambio = 0; static bool sirena = false;
-  if (reedAlerta) {
-    if (millis() - ultimoCambio > 250) { ultimoCambio = millis(); sirena = !sirena; }
-    digitalWrite(BUZZER_PIN, sirena ? HIGH : LOW);
-  } else {
-    digitalWrite(BUZZER_PIN, LOW);
   }
 
   // ===== SYNC de tokens (cada 60s) =====
