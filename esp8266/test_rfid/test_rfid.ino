@@ -5,7 +5,7 @@
 
   CONEXIONES (iguales al sketch principal):
     SDA/SS -> D4     SCK -> D5     MOSI -> D7     MISO -> D6
-    RST    -> D8     VCC -> 3.3V   GND -> GND     (¡el RC522 es de 3.3V!)
+    RST    -> 3.3V   VCC -> 3.3V   GND -> GND     (¡el RC522 es de 3.3V!)
 
   Monitor Serie a 115200.
 */
@@ -13,7 +13,7 @@
 #include <MFRC522.h>
 
 #define SS_PIN  D4    // GPIO2
-#define RST_PIN D8    // GPIO15
+#define RST_PIN 255   // RC522 RST atado a 3.3V -> reset por software (evita el boot loop del GPIO15)
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 MFRC522::MIFARE_Key keyNDEF;     // clave de tarjetas formateadas NDEF
