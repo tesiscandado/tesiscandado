@@ -5,7 +5,8 @@
 
   CONEXIONES (iguales al sketch principal):
     SDA/SS -> D0     SCK -> D5     MOSI -> D7     MISO -> D6
-    RST    -> 3.3V   VCC -> 3.3V   GND -> GND     (¡el RC522 es de 3.3V!)
+    RST    -> D8 (+resistencia 10k a 3.3V)   VCC -> 3.3V   GND -> GND
+    (¡el RC522 es de 3.3V!)
 
   Monitor Serie a 115200.
 */
@@ -13,7 +14,7 @@
 #include <MFRC522.h>
 
 #define SS_PIN  D0    // GPIO16 (no es strapping pin, seguro de usar)
-#define RST_PIN 255   // RC522 RST atado a 3.3V -> reset por software
+#define RST_PIN D8    // GPIO15 (con resistencia 10k pull-up a 3.3V) — reset por hardware
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 MFRC522::MIFARE_Key keyNDEF;     // clave de tarjetas formateadas NDEF
@@ -70,7 +71,7 @@ void setup() {
   Serial.print("Version del RC522: 0x"); Serial.println(v, HEX);
   if (v == 0x00 || v == 0xFF) {
     Serial.println(">> FALLO: el RC522 NO responde.");
-    Serial.println("   Revisa: SPI (SCK=D5, MISO=D6, MOSI=D7), SS=D0, RST=3.3V, VCC=3.3V.");
+    Serial.println("   Revisa: SPI (SCK=D5, MISO=D6, MOSI=D7), SS=D0, RST=D8 (+10k a 3.3V), VCC=3.3V.");
   } else {
     Serial.println(">> RC522 OK (normalmente responde 0x91 o 0x92). Acerca una tarjeta/tag...");
   }
