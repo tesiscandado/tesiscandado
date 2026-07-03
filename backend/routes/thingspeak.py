@@ -19,7 +19,8 @@ from datetime import datetime, timezone
 router = APIRouter()
 
 # Throttle: no sincronizar mas seguido que esto (segundos)
-_SYNC_MIN_INTERVALO = 12
+# Reducido a 3s para que no se pierdan eventos entre polling (10s del dashboard)
+_SYNC_MIN_INTERVALO = 3
 _ultimo_sync = 0
 _sync_lock = threading.Lock()
 
