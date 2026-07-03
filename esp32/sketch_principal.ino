@@ -9,7 +9,7 @@
     status=mensaje legible
 
   Codigos evento (field4): 1=apertura_ok 2=apertura_denegada
-    10=reed 12=impacto 13=forcejeo 14=resuelta
+    10=reed 11=hall 12=impacto 13=forcejeo 14=resuelta
   Codigos salud (field5):  0=ok 1=fallo_rfid 2=fallo_mpu 3=fallo_solenoide
 
   Libreria: TinyGSM (Library Manager).
@@ -34,14 +34,17 @@
     RST     -> GPIO27     3.3V -> 3.3V    GND -> GND
 
   --- MPU6050 (I2C) ---
-    SDA -> GPIO22    SCL -> GPIO21    VCC -> 3.3V    GND -> GND
+    SDA -> GPIO21    SCL -> GPIO22    VCC -> 3.3V    GND -> GND
     (direccion 0x69: pin AD0 a VCC. Si usas 0x68, AD0 a GND y cambia en el codigo)
 
   --- Sensor REED ---
     Un extremo -> GPIO26    otro extremo -> GND   (usa pull-up interno)
 
-  --- Buzzer (ACTIVO, 2 pines) ---
-    + -> GPIO14    - -> GND
+  --- Sensor HALL (KY-024) ---
+    A0 -> GPIO36 (VP)    D0 -> GPIO39 (VN)    VCC -> 3.3V    GND -> GND
+
+  --- Buzzer ---
+    + -> GPIO25    - -> GND
 
   --- TTP223B (touch capacitivo) ---
     I/O -> GPIO33    VCC -> 3.3V    GND -> GND
@@ -85,7 +88,9 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define SS_PIN 5
 #define RST_PIN 27
 #define REED_PIN 26
-#define BUZZER_PIN 14
+#define HALL_ANALOG 36
+#define HALL_DIGITAL 39
+#define BUZZER_PIN 25
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
 
@@ -126,12 +131,13 @@ const unsigned long INTERVALO_SYNC_TOKENS = 60000;   // descargar lista cada 60s
 // -------------------------
 // ESTADO
 // -------------------------
-int reedEstadoAnt = 1;
+int valorBase = 0;
+int reedEstadoAnt = 1, hallEstadoAnt = 0;
 int16_t axAnt, ayAnt, azAnt;
 const long UMBRAL_GOLPE = 80000, UMBRAL_IMPACTO = 100000;
 unsigned long inicioVentana = 0;
 int contadorEventos = 0;
-bool reedAlerta = false, mpuAlerta = false;
+bool reedAlerta = false, hallAlerta = false, mpuAlerta = false;
 unsigned long tiempoMpuAlerta = 0;
 const unsigned long TIMEOUT_MPU = 10000;
 
@@ -147,12 +153,20 @@ const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
 int  saludHW = 0;          // 0=ok 1=rfid 2=mpu 3=solenoide
 bool solenoideAbierto = false;
 
-// fallos detectados (modulos NO criticos: si fallan, se omiten y el candado sigue)
+// fallos detectados
 bool falloRFID = false, falloMPU = false;
-// modulo CRITICO: SIM808. Estado de conectividad para reportarlo.
-bool falloSIM = false;     // el SIM808 no responde a comandos AT
-bool redGSM   = false;     // registrado en la red del operador
-bool gprsOK   = false;     // sesion GPRS (datos) establecida
+
+// -------------------------
+// EVENTO PENDIENTE (cola de 1)
+// ThingSpeak solo acepta 1 update cada 15s. Un evento que caiga dentro de esa
+// ventana queda PENDIENTE y se envia apenas se libere (antes se perdia).
+// -------------------------
+int    eventoPendiente = -1;   // -1 = nada pendiente
+int    saludPendiente  = 0;
+String statusPendiente = "";
+
+// accesos (1,2) y alarmas (10-13) pesan mas que "resuelta" (14) o salud (0)
+bool esPrioritario(int ev) { return ev >= 1 && ev <= 13; }
 
 // -------------------------
 // POST A THINGSPEAK (HTTP por GPRS)
@@ -229,21 +243,8 @@ bool postThingSpeak(int evento, int salud, const char* status) {
   return (code == 200);
 }
 
-// -------------------------
-// EVENTO PENDIENTE (cola de 1)
-// ThingSpeak solo acepta 1 update cada 15s. Antes, un evento dentro de esa
-// ventana se DESCARTABA (se perdia para siempre y nunca llegaba al dashboard).
-// Ahora queda pendiente y se envia apenas se libere la ventana.
-// -------------------------
-int    eventoPendiente = -1;   // -1 = nada pendiente
-int    saludPendiente  = 0;
-String statusPendiente = "";
-
-// accesos (1,2) y alarmas (10-13) pesan mas que "resuelta" (14) o salud (0)
-bool esPrioritario(int ev) { return ev >= 1 && ev <= 13; }
-
 // Reportar un evento SIN bloquear el candado.
-// Si fue hace menos de 15s, queda en cola y se envia despues (no se pierde).
+// Si fue hace menos de 15s, queda EN COLA y se envia despues (no se pierde).
 void reportar(int evento, int salud, const char* status) {
   if (millis() - ultimoPost < MIN_ENTRE_POST) {
     // un evento prioritario en cola no se pisa con uno menor
@@ -288,8 +289,8 @@ void abrirSolenoide() {
     Serial.println("FALLO SOLENOIDE: no confirmo apertura");
     reportar(0, 3, "Solenoide no confirmo apertura");
   }
-  // Resincronizar el estado del reed: la puerta quedo abierta por un acceso
-  // AUTORIZADO; sin esto, el loop la detectaba como "ALERTA REED" (falsa alarma).
+  // Resincronizar el reed: la puerta quedo abierta por un acceso AUTORIZADO.
+  // Sin esto, el loop la detectaba como "ALERTA REED" (falsa alarma).
   reedEstadoAnt = (digitalRead(REED_PIN) == LOW);
   solenoideAbierto = false;
 }
@@ -416,6 +417,7 @@ void sincronizarTokens() {
 void setup() {
   Serial.begin(115200);
   pinMode(REED_PIN, INPUT_PULLUP);
+  pinMode(HALL_DIGITAL, INPUT);
   pinMode(TOUCH_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_OFF);   // relay apagado al iniciar
@@ -427,9 +429,10 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);   // buzzer ACTIVO (2 pines): HIGH=suena, LOW=silencio
   delay(500);
+  valorBase = analogRead(HALL_ANALOG);
 
-  // MPU   (Wire.begin(SDA, SCL))
-  Wire.begin(22, 21);   // SDA=GPIO22, SCL=GPIO21
+  // MPU
+  Wire.begin(21, 22);
   mpu.initialize();
   if (!mpu.testConnection()) { falloMPU = true; Serial.println("FALLO MPU6050"); }
   else { mpu.getAcceleration(&axAnt, &ayAnt, &azAnt); }
@@ -442,75 +445,45 @@ void setup() {
   if (v == 0x00 || v == 0xFF) { falloRFID = true; Serial.println("FALLO RC522"); }
   rfid.PCD_AntennaOff();   // antena apagada hasta que se toque el TTP223 (ahorro)
 
-  // SIM808: GPRS + GPS  (MODULO CRITICO)
+  // SIM808: GPRS + GPS
   Serial2.begin(9600, SERIAL_8N1, SIM_RX, SIM_TX);
   delay(3000);
   Serial.println("Iniciando SIM808...");
-  // restart() devuelve true si el modem respondio. Si no, probar AT directo.
-  if (!modem.restart()) {
-    if (!modem.testAT(5000)) {
-      falloSIM = true;
-      Serial.println("FALLO SIM808: no responde a comandos AT (revisa cableado/alimentacion)");
-    }
+  modem.restart();
+  modem.waitForNetwork(60000L);
+  Serial.print("GPRS...");
+  for (int i = 0; i < 6 && !modem.isGprsConnected(); i++) {
+    modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
+    if (modem.isGprsConnected()) break;
+    Serial.print(".");
+    delay(3000);
   }
-
-  if (!falloSIM) {
-    redGSM = modem.waitForNetwork(60000L);   // registro en la red del operador
-    Serial.println(redGSM ? "Red GSM: REGISTRADO" : "Red GSM: SIN RED");
-
-    if (redGSM) {
-      Serial.print("GPRS...");
-      for (int i = 0; i < 6 && !gprsOK; i++) {
-        modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
-        gprsOK = modem.isGprsConnected();
-        if (gprsOK) break;
-        Serial.print(".");
-        delay(3000);
-      }
-      Serial.println(gprsOK ? "OK" : "FALLO");
-    }
-    modem.enableGPS();   // GPS encendido (en el SIM808, GPS y GPRS conviven sin problema)
-  }
+  Serial.println(modem.isGprsConnected() ? "OK" : "FALLO");
+  modem.enableGPS();   // GPS encendido (en el SIM808, GPS y GPRS conviven sin problema)
 
   // Abrir bearer GPRS para el motor HTTP nativo del SIM808
-  if (gprsOK) {
-    enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
-    enviarAT("AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"");
-    enviarAT("AT+SAPBR=1,1", 10000);
-    enviarAT("AT+SAPBR=2,1");
-  }
+  enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
+  enviarAT("AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"");
+  enviarAT("AT+SAPBR=1,1", 10000);
+  enviarAT("AT+SAPBR=2,1");
 
   // Tokens: respaldo inicial + primera descarga desde el TalkBack
   for (int i = 0; i < N_SEED && i < MAX_TOKENS; i++) tokensValidos[nTokensValidos++] = TOKENS_SEED[i];
-  if (gprsOK) sincronizarTokens();
+  sincronizarTokens();
   ultimoSyncTokens = millis();
 
   // Lectura inicial de bateria (AT+CBC del SIM808)
-  if (!falloSIM) {
-    ultBat = modem.getBattPercent();
-    Serial.printf("Bateria inicial: %d%%\n", ultBat);
-  }
+  ultBat = modem.getBattPercent();
+  Serial.printf("Bateria inicial: %d%%\n", ultBat);
 
   inicioVentana = millis();
   ultimoPost = millis() - INTERVALO_POST;
 
-  // ===== RESUMEN DE ESTADO DE MODULOS =====
-  Serial.println("----- ESTADO DE MODULOS -----");
-  Serial.printf("RC522 (RFID): %s\n", falloRFID ? "FALLO -> omitido" : "OK");
-  Serial.printf("MPU6050     : %s\n", falloMPU  ? "FALLO -> omitido" : "OK");
-  Serial.printf("SIM808 (AT) : %s\n", falloSIM  ? "NO RESPONDE (CRITICO)" : "OK");
-  Serial.printf("Red GSM     : %s\n", redGSM ? "REGISTRADO" : "SIN RED");
-  Serial.printf("GPRS (datos): %s\n", gprsOK ? "CONECTADO" : "SIN CONEXION");
-  Serial.println("-----------------------------");
-
-  // Reportar fallos de hardware detectados al arranque (si hay GPRS)
+  // Reportar fallos de hardware detectados al arranque
   if (falloRFID) reportar(0, 1, "RFID no responde");
   if (falloMPU)  reportar(0, 2, "MPU no responde");
 
-  if (falloSIM)      Serial.println("AVISO: sin SIM808 no hay telemetria ni sync de tokens (candado en modo offline con tokens de respaldo)");
-  else if (!gprsOK)  Serial.println("AVISO: SIM808 responde pero SIN datos: el candado funciona offline con la ultima lista de tokens");
-
-  Serial.println("Sistema listo");
+  Serial.println("Sistema listo (GPRS)");
 }
 
 // -------------------------
@@ -518,67 +491,37 @@ void setup() {
 // -------------------------
 void loop() {
 
-  // ===== DIAGNOSTICO cada 2s: estado del touch, modulos y conectividad =====
+  // ===== DIAGNOSTICO cada 2s: estado del touch y GPRS =====
   static unsigned long ultLog = 0;
   if (millis() - ultLog > 2000) {
     ultLog = millis();
-    const char* estadoGprs = falloSIM ? "SIN-SIM" : (modem.isGprsConnected() ? "OK" : "NO");
-    Serial.printf("[STATUS] Touch=%d  RFID=%s  MPU=%s  GPRS=%s\n",
-      digitalRead(TOUCH_PIN),
-      falloRFID ? "FALLO" : "OK",
-      falloMPU  ? "FALLO" : "OK",
-      estadoGprs);
+    Serial.printf("[STATUS] Touch=%d  GPRS=%s\n",
+      digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO");
   }
 
   // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
-  // Si el RC522 fallo al arrancar, se OMITE todo el bloque (candado tolerante).
-  if (!falloRFID) {
-    bool tocando = (digitalRead(TOUCH_PIN) == HIGH);
-    static bool antenaOn = false;
-    if (tocando && !antenaOn) {
-      // Re-inicializar el RC522: algunos modulos clon quedan "mudos"
-      // tras apagar/encender la antena. Asi arranca en estado limpio.
-      rfid.PCD_Init();
-      rfid.PCD_SetAntennaGain(rfid.RxGain_max);
-      rfid.PCD_AntennaOn(); antenaOn = true;
-      byte ver = rfid.PCD_ReadRegister(MFRC522::VersionReg);
-      Serial.printf("TTP223 tocado -> antena RFID ON (RC522 ver=0x%02X), acerca la tarjeta\n", ver);
-    }
-    if (!tocando && antenaOn) {
-      rfid.PCD_AntennaOff(); antenaOn = false;
-      Serial.println("TTP223 soltado -> antena RFID OFF");
-    }
+  bool tocando = (digitalRead(TOUCH_PIN) == HIGH);
+  static bool antenaOn = false;
+  if (tocando && !antenaOn) { rfid.PCD_AntennaOn(); antenaOn = true; }
+  if (!tocando && antenaOn) { rfid.PCD_AntennaOff(); antenaOn = false; }
 
-    if (tocando && millis() - ultimaLectura > COOLDOWN_RFID) {
-      if (!rfid.PICC_IsNewCardPresent()) {
-        // no hay tarjeta nueva en el campo (esto es normal entre toques)
-      } else if (!rfid.PICC_ReadCardSerial()) {
-        Serial.println("Tarjeta presente pero NO se pudo leer el serial (acercala mas)");
+  if (tocando && millis() - ultimaLectura > COOLDOWN_RFID) {
+    if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+      ultimaLectura = millis();
+      String token = leerToken();
+      Serial.println("Token: [" + token + "]");
+      if (token.length() >= 4 && tokenAutorizado(token)) {
+        beep(180);   // acceso concedido: 1 beep corto
+        Serial.println("ACCESO CONCEDIDO");
+        reportar(1, saludHW, "Acceso concedido");   // evento 1
+        abrirSolenoide();
       } else {
-        ultimaLectura = millis();
-        // UID crudo SIEMPRE, para confirmar que el RC522 detecta la tarjeta
-        String uidStr = "";
-        for (byte i = 0; i < rfid.uid.size; i++) {
-          if (rfid.uid.uidByte[i] < 0x10) uidStr += "0";
-          uidStr += String(rfid.uid.uidByte[i], HEX);
-        }
-        uidStr.toUpperCase();
-        Serial.println("Tarjeta detectada -> UID: " + uidStr);
-        String token = leerToken();
-        Serial.println("Token: [" + token + "]");
-        if (token.length() >= 4 && tokenAutorizado(token)) {
-          beep(180);   // acceso concedido: 1 beep corto
-          Serial.println("ACCESO CONCEDIDO");
-          reportar(1, saludHW, "Acceso concedido");   // evento 1
-          abrirSolenoide();
-        } else {
-          beep(150); delay(120); beep(150); delay(120); beep(150);   // denegado: 3 beeps
-          Serial.println("ACCESO DENEGADO");
-          reportar(2, saludHW, "Acceso denegado");     // evento 2
-        }
-        rfid.PICC_HaltA();
-        rfid.PCD_StopCrypto1();
+        beep(150); delay(120); beep(150); delay(120); beep(150);   // denegado: 3 beeps
+        Serial.println("ACCESO DENEGADO");
+        reportar(2, saludHW, "Acceso denegado");     // evento 2
       }
+      rfid.PICC_HaltA();
+      rfid.PCD_StopCrypto1();
     }
   }
 
@@ -592,32 +535,45 @@ void loop() {
     } else if (reedDetecta && reedAlerta) {
       // solo reportar "resuelta" si de verdad habia una alarma activa
       reedAlerta = false;
-      if (!mpuAlerta) reportar(14, saludHW, "Alarma resuelta");
+      if (!hallAlerta && !mpuAlerta) reportar(14, saludHW, "Alarma resuelta");
     }
     reedEstadoAnt = reedDetecta;
   }
 
-  // ===== MPU =====
-  // Si el MPU6050 fallo al arrancar, se OMITE la deteccion de impacto/forcejeo.
-  if (!falloMPU) {
-    int16_t ax, ay, az;
-    mpu.getAcceleration(&ax, &ay, &az);
-    if (!(ax==-32768||ay==-32768||az==-32768||ax==32767||ay==32767||az==32767)) {
-      long inten = abs(ax-axAnt)+abs(ay-ayAnt)+abs(az-azAnt);
-      if (inten > UMBRAL_IMPACTO) {
-        contadorEventos += 3; mpuAlerta = true; tiempoMpuAlerta = millis();
-        Serial.println("ALERTA IMPACTO");
-        reportar(12, saludHW, "Impacto detectado");
-      } else if (inten > UMBRAL_GOLPE) {
-        contadorEventos++; mpuAlerta = true; tiempoMpuAlerta = millis();
-        reportar(12, saludHW, "Golpe detectado");
-      }
-      axAnt=ax; ayAnt=ay; azAnt=az;
+  // ===== HALL =====
+  int diferencia = abs(analogRead(HALL_ANALOG) - valorBase);
+  bool hallDetecta = (diferencia <= 100);
+  if (hallEstadoAnt != hallDetecta) {
+    if (!hallDetecta) {
+      hallAlerta = true;
+      Serial.println("ALERTA HALL");
+      reportar(11, saludHW, "Iman removido");
+    } else if (hallAlerta) {
+      // solo reportar "resuelta" si de verdad habia una alarma activa
+      hallAlerta = false;
+      if (!reedAlerta && !mpuAlerta) reportar(14, saludHW, "Alarma resuelta");
     }
+    hallEstadoAnt = hallDetecta;
+  }
+
+  // ===== MPU =====
+  int16_t ax, ay, az;
+  mpu.getAcceleration(&ax, &ay, &az);
+  if (!(ax==-32768||ay==-32768||az==-32768||ax==32767||ay==32767||az==32767)) {
+    long inten = abs(ax-axAnt)+abs(ay-ayAnt)+abs(az-azAnt);
+    if (inten > UMBRAL_IMPACTO) {
+      contadorEventos += 3; mpuAlerta = true; tiempoMpuAlerta = millis();
+      Serial.println("ALERTA IMPACTO");
+      reportar(12, saludHW, "Impacto detectado");
+    } else if (inten > UMBRAL_GOLPE) {
+      contadorEventos++; mpuAlerta = true; tiempoMpuAlerta = millis();
+      reportar(12, saludHW, "Golpe detectado");
+    }
+    axAnt=ax; ayAnt=ay; azAnt=az;
   }
   if (mpuAlerta && (millis() - tiempoMpuAlerta >= TIMEOUT_MPU)) {
     mpuAlerta = false; contadorEventos = 0; inicioVentana = millis();
-    if (!reedAlerta) reportar(14, saludHW, "Alarma resuelta");
+    if (!reedAlerta && !hallAlerta) reportar(14, saludHW, "Alarma resuelta");
   }
   if (millis() - inicioVentana >= 5000) {
     if (contadorEventos >= 5) {
@@ -628,7 +584,7 @@ void loop() {
   }
 
   // ===== BUZZER =====
-  bool alarma = reedAlerta || mpuAlerta;
+  bool alarma = reedAlerta || hallAlerta || mpuAlerta;
   static unsigned long ultimoCambio = 0; static bool sirena = false;
   if (alarma) {
     if (millis() - ultimoCambio > 250) { ultimoCambio = millis(); sirena = !sirena; }
@@ -639,7 +595,7 @@ void loop() {
 
   // ===== EVENTO PENDIENTE: enviarlo apenas se libere la ventana de 15s =====
   static unsigned long ultimoIntentoPend = 0;
-  if (eventoPendiente >= 0 && !falloSIM
+  if (eventoPendiente >= 0
       && millis() - ultimoPost >= MIN_ENTRE_POST
       && millis() - ultimoIntentoPend > 5000) {   // reintento max cada 5s si falla
     ultimoIntentoPend = millis();
@@ -649,13 +605,13 @@ void loop() {
   }
 
   // ===== SYNC de tokens autorizados (cada 60s) =====
-  if (!falloSIM && millis() - ultimoSyncTokens >= INTERVALO_SYNC_TOKENS) {
+  if (millis() - ultimoSyncTokens >= INTERVALO_SYNC_TOKENS) {
     ultimoSyncTokens = millis();
     sincronizarTokens();
   }
 
   // ===== TELEMETRIA periodica (GPS + bateria) =====
-  if (!falloSIM && millis() - ultimoPost >= INTERVALO_POST) {
+  if (millis() - ultimoPost >= INTERVALO_POST) {
     actualizarGPS();   // lee la posicion GPS y actualiza ultLat/ultLon (para la ruta)
     ultBat = modem.getBattPercent();
     postThingSpeak(0, saludHW, "heartbeat");
