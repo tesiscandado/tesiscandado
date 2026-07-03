@@ -57,8 +57,7 @@ def resumen():
     # Eventos recientes
     eventos_recientes = (
         supabase.table("eventos")
-        .select("id, ocurrido_en, tipos_evento(nombre, severidad), candados(descripcion), "
-                "usuarios!eventos_operador_id_fkey(nombre)")
+        .select("id, ocurrido_en, latitud, longitud, tipos_evento(nombre, severidad), candados(descripcion)")
         .order("ocurrido_en", desc=True)
         .limit(50)
         .execute()
