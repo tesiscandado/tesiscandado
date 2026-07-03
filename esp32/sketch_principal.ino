@@ -9,8 +9,8 @@
     status=mensaje legible
 
   Codigos evento (field4): 1=apertura_ok 2=apertura_denegada
-    10=reed 11=hall 12=impacto 13=forcejeo 14=resuelta
-  Codigos salud (field5):  0=ok 1=fallo_rfid 2=fallo_mpu 3=fallo_solenoide
+    10=reed 12=impacto 13=forcejeo 14=resuelta
+  Codigos salud (field5):  0=ok 1=fallo_rfid 2=fallo_acel 3=fallo_solenoide
 
   Libreria: TinyGSM (Library Manager).
   NOTA: la validacion del token RFID es LOCAL (offline), porque ThingSpeak
@@ -33,18 +33,17 @@
     MOSI    -> GPIO23     MISO -> GPIO19
     RST     -> GPIO27     3.3V -> 3.3V    GND -> GND
 
-  --- MPU6050 (I2C) ---
+  --- ADXL345 (acelerometro, I2C) ---
     SDA -> GPIO21    SCL -> GPIO22    VCC -> 3.3V    GND -> GND
-    (direccion 0x69: pin AD0 a VCC. Si usas 0x68, AD0 a GND y cambia en el codigo)
+    CS  -> 3.3V (fuerza modo I2C)
+    SDO/ALT ADDRESS -> GND (direccion 0x53)
 
   --- Sensor REED ---
     Un extremo -> GPIO26    otro extremo -> GND   (usa pull-up interno)
 
-  --- Sensor HALL (KY-024) ---
-    A0 -> GPIO36 (VP)    D0 -> GPIO39 (VN)    VCC -> 3.3V    GND -> GND
-
-  --- Buzzer ---
-    + -> GPIO25    - -> GND
+  --- Buzzer (modulo 3 pines, ACTIVO EN LOW) ---
+    VCC -> 3.3V    GND -> GND    I/O -> GPIO25
+    (I/O en LOW = suena, I/O en HIGH = silencio)
 
   --- TTP223B (touch capacitivo) ---
     I/O -> GPIO33    VCC -> 3.3V    GND -> GND
@@ -57,7 +56,7 @@
     Configurar modo OP, tiempo 3.0s. Diodo flyback 1N4007 en el solenoide.
 
   --- ALIMENTACION ---
-    Bateria LiPo 1S -> alimenta ESP32, SIM808, RC522, MPU, sensores
+    Bateria LiPo 1S -> alimenta ESP32, SIM808, RC522, ADXL345, sensores
     Boost 3.7V->12V -> alimenta el modulo XY-J02 y el solenoide
     TODOS los GND unidos (comun)
   =====================================================================
@@ -65,7 +64,6 @@
 
 #define TINY_GSM_MODEM_SIM808
 #include <Wire.h>
-#include <MPU6050.h>
 #include <SPI.h>
 #include <MFRC522.h>
 #include <TinyGsmClient.h>
@@ -73,7 +71,7 @@
 // -------------------------
 // CONFIG GPRS / THINGSPEAK
 // -------------------------
-const char APN[]       = "internet.comcel.com.co";  // cambia segun tu operador
+const char APN[]       = "internet.tuenti.ec";  // Tuenti Ecuador
 const char GPRS_USER[] = "";
 const char GPRS_PASS[] = "";
 const char TS_HOST[]   = "api.thingspeak.com";
@@ -88,8 +86,6 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define SS_PIN 5
 #define RST_PIN 27
 #define REED_PIN 26
-#define HALL_ANALOG 36
-#define HALL_DIGITAL 39
 #define BUZZER_PIN 25
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
@@ -100,11 +96,54 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
 #define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
+// Modulo buzzer de 3 pines: ACTIVO EN BAJO (I/O=LOW -> suena)
+#define BUZZER_ON  LOW
+#define BUZZER_OFF HIGH
+
+// -------------------------
+// ADXL345 (acelerometro I2C, direccion 0x53)
+// -------------------------
+const int ADXL345_ADDR = 0x53;
+
+void adxlInit() {
+  Wire.beginTransmission(ADXL345_ADDR);
+  Wire.write(0x2D);  // registro POWER_CTL
+  Wire.write(0x08);  // bit "Measure" activado (sale de standby)
+  Wire.endTransmission(true);
+}
+
+bool adxlTestConnection() {
+  Wire.beginTransmission(ADXL345_ADDR);
+  Wire.write(0x00);  // registro DEVID
+  Wire.endTransmission(false);
+  Wire.requestFrom(ADXL345_ADDR, 1, true);
+  if (Wire.available()) {
+    return (Wire.read() == 0xE5);   // DEVID esperado del ADXL345
+  }
+  return false;
+}
+
+// Devuelve false si la lectura I2C fallo (asi no se usan datos basura).
+bool adxlGetAcceleration(int16_t *x, int16_t *y, int16_t *z) {
+  Wire.beginTransmission(ADXL345_ADDR);
+  Wire.write(0x32);  // registro inicial DATAX0
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(ADXL345_ADDR, 6, true) != 6) return false;
+  // Leer en variables temporales: el orden de evaluacion de dos Wire.read()
+  // dentro de una misma expresion NO esta garantizado (podia invertir bytes).
+  byte xl = Wire.read(), xh = Wire.read();
+  byte yl = Wire.read(), yh = Wire.read();
+  byte zl = Wire.read(), zh = Wire.read();
+  *x = (int16_t)(xl | (xh << 8));
+  *y = (int16_t)(yl | (yh << 8));
+  *z = (int16_t)(zl | (zh << 8));
+  return true;
+}
+
 // -------------------------
 // OBJETOS
 // -------------------------
 MFRC522 rfid(SS_PIN, RST_PIN);
-MPU6050 mpu(0x69);
 TinyGsm modem(Serial2);
 TinyGsmClient gsmClient(modem);   // HTTP puerto 80
 
@@ -131,13 +170,17 @@ const unsigned long INTERVALO_SYNC_TOKENS = 60000;   // descargar lista cada 60s
 // -------------------------
 // ESTADO
 // -------------------------
-int valorBase = 0;
-int reedEstadoAnt = 1, hallEstadoAnt = 0;
+int reedEstadoAnt = 1;
 int16_t axAnt, ayAnt, azAnt;
-const long UMBRAL_GOLPE = 80000, UMBRAL_IMPACTO = 100000;
+
+// Umbrales recalibrados para ADXL345 (rango ~ -256..256 en reposo, 1g).
+// AJUSTA estos valores viendo el Monitor Serial: en reposo la diferencia
+// entre lecturas deberia ser baja (decenas); un golpe fuerte sube mucho mas.
+const long UMBRAL_GOLPE = 500, UMBRAL_IMPACTO = 900;
+
 unsigned long inicioVentana = 0;
 int contadorEventos = 0;
-bool reedAlerta = false, hallAlerta = false, mpuAlerta = false;
+bool reedAlerta = false, mpuAlerta = false;
 unsigned long tiempoMpuAlerta = 0;
 const unsigned long TIMEOUT_MPU = 10000;
 
@@ -150,7 +193,7 @@ int   ultBat = 0;
 unsigned long ultimoPost = 0;
 const unsigned long INTERVALO_POST = 60000;   // heartbeat cada 60s
 const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
-int  saludHW = 0;          // 0=ok 1=rfid 2=mpu 3=solenoide
+int  saludHW = 0;          // 0=ok 1=rfid 2=acelerometro 3=solenoide
 bool solenoideAbierto = false;
 
 // fallos detectados
@@ -159,7 +202,8 @@ bool falloRFID = false, falloMPU = false;
 // -------------------------
 // EVENTO PENDIENTE (cola de 1)
 // ThingSpeak solo acepta 1 update cada 15s. Un evento que caiga dentro de esa
-// ventana queda PENDIENTE y se envia apenas se libere (antes se perdia).
+// ventana (o durante una caida de GPRS) queda PENDIENTE y se envia apenas se
+// pueda (antes se perdia para siempre y nunca llegaba al dashboard).
 // -------------------------
 int    eventoPendiente = -1;   // -1 = nada pendiente
 int    saludPendiente  = 0;
@@ -189,7 +233,12 @@ String enviarAT(String cmd, unsigned long timeout = 3000, const char* hasta = "O
 bool postThingSpeak(int evento, int salud, const char* status) {
   // Si no hay GPRS, NO bloquear el candado: salir rapido
   if (!modem.isGprsConnected()) {
-    Serial.println("Sin GPRS, post omitido");
+    static unsigned long ultimoAvisoSinGPRS = 0;
+    if (millis() - ultimoAvisoSinGPRS > 15000) {   // avisa max cada 15s
+      Serial.println("Sin GPRS, post omitido");
+      ultimoAvisoSinGPRS = millis();
+    }
+    ultimoPost = millis();   // actualiza igual, para que reportar() respete su limite de espera
     return false;
   }
   String url = "http://" + String(TS_HOST) + "/update?api_key=" + String(TS_WRITEKEY);
@@ -244,7 +293,7 @@ bool postThingSpeak(int evento, int salud, const char* status) {
 }
 
 // Reportar un evento SIN bloquear el candado.
-// Si fue hace menos de 15s, queda EN COLA y se envia despues (no se pierde).
+// Si fue hace menos de 15s (o no hay GPRS), queda EN COLA y se envia despues.
 void reportar(int evento, int salud, const char* status) {
   if (millis() - ultimoPost < MIN_ENTRE_POST) {
     // un evento prioritario en cola no se pisa con uno menor
@@ -254,16 +303,22 @@ void reportar(int evento, int salud, const char* status) {
     }
     return;
   }
-  postThingSpeak(evento, salud, status);
+  if (!postThingSpeak(evento, salud, status)) {
+    // fallo el envio (ej: sin GPRS): dejarlo en cola para reintentar
+    if (eventoPendiente < 0 || esPrioritario(evento) || !esPrioritario(eventoPendiente)) {
+      eventoPendiente = evento; saludPendiente = salud; statusPendiente = String(status);
+      Serial.printf("Evento %d en cola (post fallido, se reintenta)\n", evento);
+    }
+  }
 }
 
 // -------------------------
-// BUZZER ACTIVO (solo on/off, sin frecuencia)
+// BUZZER (modulo 3 pines, activo en LOW)
 // -------------------------
 void beep(int ms) {
-  digitalWrite(BUZZER_PIN, HIGH);
+  digitalWrite(BUZZER_PIN, BUZZER_ON);
   delay(ms);
-  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(BUZZER_PIN, BUZZER_OFF);
 }
 
 // -------------------------
@@ -417,7 +472,6 @@ void sincronizarTokens() {
 void setup() {
   Serial.begin(115200);
   pinMode(REED_PIN, INPUT_PULLUP);
-  pinMode(HALL_DIGITAL, INPUT);
   pinMode(TOUCH_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_OFF);   // relay apagado al iniciar
@@ -427,15 +481,14 @@ void setup() {
   for (byte i=0;i<6;i++) keyFactory.keyByte[i]=0xFF;
 
   pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);   // buzzer ACTIVO (2 pines): HIGH=suena, LOW=silencio
+  digitalWrite(BUZZER_PIN, BUZZER_OFF);   // buzzer apagado al iniciar (activo en LOW)
   delay(500);
-  valorBase = analogRead(HALL_ANALOG);
 
-  // MPU
+  // ADXL345
   Wire.begin(21, 22);
-  mpu.initialize();
-  if (!mpu.testConnection()) { falloMPU = true; Serial.println("FALLO MPU6050"); }
-  else { mpu.getAcceleration(&axAnt, &ayAnt, &azAnt); }
+  adxlInit();
+  if (!adxlTestConnection()) { falloMPU = true; Serial.println("FALLO ADXL345"); }
+  else { adxlGetAcceleration(&axAnt, &ayAnt, &azAnt); }
 
   // RC522
   SPI.begin();
@@ -452,11 +505,11 @@ void setup() {
   modem.restart();
   modem.waitForNetwork(60000L);
   Serial.print("GPRS...");
-  for (int i = 0; i < 6 && !modem.isGprsConnected(); i++) {
+  for (int i = 0; i < 10 && !modem.isGprsConnected(); i++) {
     modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
     if (modem.isGprsConnected()) break;
     Serial.print(".");
-    delay(3000);
+    delay(5000);
   }
   Serial.println(modem.isGprsConnected() ? "OK" : "FALLO");
   modem.enableGPS();   // GPS encendido (en el SIM808, GPS y GPRS conviven sin problema)
@@ -481,7 +534,7 @@ void setup() {
 
   // Reportar fallos de hardware detectados al arranque
   if (falloRFID) reportar(0, 1, "RFID no responde");
-  if (falloMPU)  reportar(0, 2, "MPU no responde");
+  if (falloMPU)  reportar(0, 2, "ADXL345 no responde");
 
   Serial.println("Sistema listo (GPRS)");
 }
@@ -535,45 +588,33 @@ void loop() {
     } else if (reedDetecta && reedAlerta) {
       // solo reportar "resuelta" si de verdad habia una alarma activa
       reedAlerta = false;
-      if (!hallAlerta && !mpuAlerta) reportar(14, saludHW, "Alarma resuelta");
+      if (!mpuAlerta) reportar(14, saludHW, "Alarma resuelta");
     }
     reedEstadoAnt = reedDetecta;
   }
 
-  // ===== HALL =====
-  int diferencia = abs(analogRead(HALL_ANALOG) - valorBase);
-  bool hallDetecta = (diferencia <= 100);
-  if (hallEstadoAnt != hallDetecta) {
-    if (!hallDetecta) {
-      hallAlerta = true;
-      Serial.println("ALERTA HALL");
-      reportar(11, saludHW, "Iman removido");
-    } else if (hallAlerta) {
-      // solo reportar "resuelta" si de verdad habia una alarma activa
-      hallAlerta = false;
-      if (!reedAlerta && !mpuAlerta) reportar(14, saludHW, "Alarma resuelta");
+  // ===== ADXL345 (acelerometro) =====
+  // Se omite si fallo al arrancar o si la lectura I2C falla (datos basura
+  // podian disparar falsas alarmas de impacto).
+  if (!falloMPU) {
+    int16_t ax, ay, az;
+    if (adxlGetAcceleration(&ax, &ay, &az)) {
+      long inten = abs(ax-axAnt)+abs(ay-ayAnt)+abs(az-azAnt);
+      if (inten > UMBRAL_IMPACTO) {
+        contadorEventos += 3; mpuAlerta = true; tiempoMpuAlerta = millis();
+        Serial.println("ALERTA IMPACTO");
+        reportar(12, saludHW, "Impacto detectado");
+      } else if (inten > UMBRAL_GOLPE) {
+        contadorEventos++; mpuAlerta = true; tiempoMpuAlerta = millis();
+        reportar(12, saludHW, "Golpe detectado");
+      }
+      axAnt=ax; ayAnt=ay; azAnt=az;
     }
-    hallEstadoAnt = hallDetecta;
   }
 
-  // ===== MPU =====
-  int16_t ax, ay, az;
-  mpu.getAcceleration(&ax, &ay, &az);
-  if (!(ax==-32768||ay==-32768||az==-32768||ax==32767||ay==32767||az==32767)) {
-    long inten = abs(ax-axAnt)+abs(ay-ayAnt)+abs(az-azAnt);
-    if (inten > UMBRAL_IMPACTO) {
-      contadorEventos += 3; mpuAlerta = true; tiempoMpuAlerta = millis();
-      Serial.println("ALERTA IMPACTO");
-      reportar(12, saludHW, "Impacto detectado");
-    } else if (inten > UMBRAL_GOLPE) {
-      contadorEventos++; mpuAlerta = true; tiempoMpuAlerta = millis();
-      reportar(12, saludHW, "Golpe detectado");
-    }
-    axAnt=ax; ayAnt=ay; azAnt=az;
-  }
   if (mpuAlerta && (millis() - tiempoMpuAlerta >= TIMEOUT_MPU)) {
     mpuAlerta = false; contadorEventos = 0; inicioVentana = millis();
-    if (!reedAlerta && !hallAlerta) reportar(14, saludHW, "Alarma resuelta");
+    if (!reedAlerta) reportar(14, saludHW, "Alarma resuelta");
   }
   if (millis() - inicioVentana >= 5000) {
     if (contadorEventos >= 5) {
@@ -583,14 +624,14 @@ void loop() {
     contadorEventos = 0; inicioVentana = millis();
   }
 
-  // ===== BUZZER =====
-  bool alarma = reedAlerta || hallAlerta || mpuAlerta;
+  // ===== BUZZER (activo en LOW) =====
+  bool alarma = reedAlerta || mpuAlerta;
   static unsigned long ultimoCambio = 0; static bool sirena = false;
   if (alarma) {
     if (millis() - ultimoCambio > 250) { ultimoCambio = millis(); sirena = !sirena; }
-    digitalWrite(BUZZER_PIN, sirena ? HIGH : LOW);   // alarma: beep intermitente
+    digitalWrite(BUZZER_PIN, sirena ? BUZZER_ON : BUZZER_OFF);   // alarma: beep intermitente
   } else {
-    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(BUZZER_PIN, BUZZER_OFF);
   }
 
   // ===== EVENTO PENDIENTE: enviarlo apenas se libere la ventana de 15s =====
@@ -601,6 +642,21 @@ void loop() {
     ultimoIntentoPend = millis();
     if (postThingSpeak(eventoPendiente, saludPendiente, statusPendiente.c_str())) {
       eventoPendiente = -1;
+    }
+  }
+
+  // ===== REINTENTO GPRS (cada 30s si esta caido) =====
+  static unsigned long ultimoReintentoGPRS = 0;
+  if (!modem.isGprsConnected() && millis() - ultimoReintentoGPRS > 30000) {
+    ultimoReintentoGPRS = millis();
+    Serial.println("Reintentando GPRS...");
+    modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
+    if (modem.isGprsConnected()) {
+      Serial.println("GPRS reconectado");
+      // Reabrir el bearer nativo del SIM808 para el motor HTTP
+      enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
+      enviarAT("AT+SAPBR=3,1,\"APN\",\"" + String(APN) + "\"");
+      enviarAT("AT+SAPBR=1,1", 10000);
     }
   }
 
