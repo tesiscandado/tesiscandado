@@ -165,7 +165,9 @@ const int   N_SEED        = sizeof(TOKENS_SEED) / sizeof(TOKENS_SEED[0]);
 String tokensValidos[MAX_TOKENS];      // lista vigente (se llena al sincronizar)
 int    nTokensValidos = 0;
 unsigned long ultimoSyncTokens = 0;
-const unsigned long INTERVALO_SYNC_TOKENS = 60000;   // descargar lista cada 60s
+// Cada 3 min (antes 60s): cada peticion GPRS gasta bateria. Un token nuevo
+// tarda hasta 3 min en activarse en el candado (aceptable).
+const unsigned long INTERVALO_SYNC_TOKENS = 180000;
 
 // -------------------------
 // ESTADO
@@ -191,7 +193,10 @@ const unsigned long COOLDOWN_RFID = 3000;
 float ultLat = 0, ultLon = 0;
 int   ultBat = 0;
 unsigned long ultimoPost = 0;
-const unsigned long INTERVALO_POST = 60000;   // heartbeat cada 60s
+// Heartbeat (GPS+bateria) cada 3 min (antes 60s) para AHORRAR BATERIA:
+// cada post por GPRS enciende la radio del SIM808 varios segundos.
+// Las ALARMAS y ACCESOS se siguen reportando AL INSTANTE (no les afecta).
+const unsigned long INTERVALO_POST = 180000;
 const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
 int  saludHW = 0;          // 0=ok 1=rfid 2=acelerometro 3=solenoide
 bool solenoideAbierto = false;

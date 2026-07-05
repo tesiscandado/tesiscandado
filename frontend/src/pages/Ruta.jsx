@@ -51,11 +51,11 @@ export default function Ruta() {
     }).catch(() => {})
   }, [])
 
-  // Cargar ruta + refresco automatico cada 15s
+  // Cargar ruta + refresco automatico cada 60s (el candado reporta GPS cada 3 min)
   useEffect(() => {
     if (!candadoId) return
     cargarRuta()
-    timer.current = setInterval(cargarRuta, 15000)
+    timer.current = setInterval(cargarRuta, 60000)
     return () => clearInterval(timer.current)
   }, [candadoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -139,7 +139,7 @@ export default function Ruta() {
           <span className="text-xs flex items-center gap-1.5 px-2.5 py-1 rounded-full"
             style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
             <span className="w-2 h-2 rounded-full inline-block animate-pulse" style={{ background: '#ef4444' }} />
-            En vivo · cada 15s
+            En vivo · cada 60s
           </span>
         </div>
       </div>
