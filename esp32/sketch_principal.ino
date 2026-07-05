@@ -360,6 +360,7 @@ void abrirSolenoide() {
   // El modulo temporizador XY-J02 maneja los 3s de apertura.
   // El ESP32 solo manda un PULSO corto en Trigger.
   solenoideAbierto = true;
+  Serial.println("Disparando solenoide (pulso 300ms en el relay)...");
   digitalWrite(RELAY_PIN, RELAY_ON);
   delay(300);                          // pulso de disparo
   digitalWrite(RELAY_PIN, RELAY_OFF);
@@ -614,12 +615,35 @@ void loop() {
   // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
   bool tocando = (digitalRead(TOUCH_PIN) == HIGH);
   static bool antenaOn = false;
-  if (tocando && !antenaOn) { rfid.PCD_AntennaOn(); antenaOn = true; }
-  if (!tocando && antenaOn) { rfid.PCD_AntennaOff(); antenaOn = false; }
+  if (tocando && !antenaOn) {
+    // Re-inicializar el RC522: algunos modulos clon quedan "mudos" tras
+    // apagar/encender la antena. Asi arranca en estado limpio.
+    rfid.PCD_Init();
+    rfid.PCD_SetAntennaGain(rfid.RxGain_max);
+    rfid.PCD_AntennaOn(); antenaOn = true;
+    byte ver = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+    Serial.printf("TTP223 tocado -> antena RFID ON (RC522 ver=0x%02X%s), acerca la tarjeta\n",
+      ver, (ver == 0x00 || ver == 0xFF) ? " = NO RESPONDE, revisa cableado SPI" : "");
+  }
+  if (!tocando && antenaOn) {
+    rfid.PCD_AntennaOff(); antenaOn = false;
+    Serial.println("TTP223 soltado -> antena RFID OFF");
+  }
 
   if (tocando && millis() - ultimaLectura > COOLDOWN_RFID) {
-    if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+    if (!rfid.PICC_IsNewCardPresent()) {
+      // sin tarjeta nueva en el campo (normal entre toques)
+    } else if (!rfid.PICC_ReadCardSerial()) {
+      Serial.println("Tarjeta presente pero NO se pudo leer (acercala mas)");
+    } else {
       ultimaLectura = millis();
+      String uidStr = "";
+      for (byte i = 0; i < rfid.uid.size; i++) {
+        if (rfid.uid.uidByte[i] < 0x10) uidStr += "0";
+        uidStr += String(rfid.uid.uidByte[i], HEX);
+      }
+      uidStr.toUpperCase();
+      Serial.println("Tarjeta detectada -> UID: " + uidStr);
       String token = leerToken();
       Serial.println("Token: [" + token + "]");
       if (token.length() >= 4 && tokenAutorizado(token)) {
