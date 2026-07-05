@@ -38,8 +38,11 @@
     CS  -> 3.3V (fuerza modo I2C)
     SDO/ALT ADDRESS -> GND (direccion 0x53)
 
-  --- Sensor REED ---
-    Un extremo -> GPIO26    otro extremo -> GND   (usa pull-up interno)
+  --- Sensor HALL KY-024 (reemplaza al REED danado) ---
+    D0 -> GPIO26    VCC -> 3.3V    GND -> GND    (A0 sin usar)
+    CALIBRACION: pega el iman en posicion "cerrado" y gira el potenciometro
+    hasta que el LED de senal (L2) cambie justo al acercar/alejar el iman.
+    Si tu modulo entrega D0 al reves, cambia HALL_DETECTA_ALTO abajo.
 
   --- Buzzer (modulo 3 pines, ACTIVO EN LOW) ---
     VCC -> 3.3V    GND -> GND    I/O -> GPIO25
@@ -85,7 +88,7 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define SIM_TX 17   // ESP32 TX2 -> SIM808 RXD
 #define SS_PIN 5
 #define RST_PIN 27
-#define REED_PIN 26
+#define HALL_PIN 26       // KY-024 salida D0 (reemplaza al sensor REED)
 #define BUZZER_PIN 25
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
@@ -99,6 +102,16 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 // Modulo buzzer de 3 pines: ACTIVO EN BAJO (I/O=LOW -> suena)
 #define BUZZER_ON  LOW
 #define BUZZER_OFF HIGH
+
+// KY-024: la mayoria pone D0 en ALTO cuando detecta el iman (LED L2 encendido).
+// Si el tuyo hace lo contrario (con el iman pegado D0 queda LOW), cambia a false.
+#define HALL_DETECTA_ALTO true
+
+// true = iman presente = candado CERRADO
+bool imanPresente() {
+  int v = digitalRead(HALL_PIN);
+  return HALL_DETECTA_ALTO ? (v == HIGH) : (v == LOW);
+}
 
 // -------------------------
 // ADXL345 (acelerometro I2C, direccion 0x53)
@@ -342,21 +355,21 @@ void abrirSolenoide() {
   delay(300);                          // pulso de disparo
   digitalWrite(RELAY_PIN, RELAY_OFF);
 
-  // Confirmar apertura con el reed durante la ventana del temporizador
+  // Confirmar apertura con el sensor magnetico durante la ventana del temporizador
   unsigned long t = millis();
   bool confirmo = false;
   while (millis() - t < 3000) {
-    if (digitalRead(REED_PIN) == HIGH) { confirmo = true; break; }
+    if (!imanPresente()) { confirmo = true; break; }   // iman se alejo = abrio
     delay(50);
   }
   if (!confirmo) {
-    saludHW = 3; // fallo_solenoide: se disparo pero el reed no confirmo apertura
+    saludHW = 3; // fallo_solenoide: se disparo pero el sensor no confirmo apertura
     Serial.println("FALLO SOLENOIDE: no confirmo apertura");
     reportar(0, 3, "Solenoide no confirmo apertura");
   }
-  // Resincronizar el reed: la puerta quedo abierta por un acceso AUTORIZADO.
-  // Sin esto, el loop la detectaba como "ALERTA REED" (falsa alarma).
-  reedEstadoAnt = (digitalRead(REED_PIN) == LOW);
+  // Resincronizar el sensor: la puerta quedo abierta por un acceso AUTORIZADO.
+  // Sin esto, el loop la detectaba como alarma de apertura (falsa alarma).
+  reedEstadoAnt = imanPresente();
   solenoideAbierto = false;
 }
 
@@ -503,7 +516,7 @@ void sincronizarTokens() {
 // -------------------------
 void setup() {
   Serial.begin(115200);
-  pinMode(REED_PIN, INPUT_PULLUP);
+  pinMode(HALL_PIN, INPUT);   // el KY-024 maneja su propia salida (no usa pull-up)
   pinMode(TOUCH_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_OFF);   // relay apagado al iniciar
@@ -614,12 +627,12 @@ void loop() {
     }
   }
 
-  // ===== REED =====
-  bool reedDetecta = (digitalRead(REED_PIN) == LOW);
+  // ===== SENSOR MAGNETICO (HALL KY-024, antes REED) =====
+  bool reedDetecta = imanPresente();   // true = iman presente = cerrado
   if (reedEstadoAnt != reedDetecta) {
     if (!reedDetecta && !solenoideAbierto) {
       reedAlerta = true;
-      Serial.println("ALERTA REED");
+      Serial.println("ALERTA APERTURA (hall)");
       reportar(10, saludHW, "Puerta abierta sin autorizacion");
     } else if (reedDetecta && reedAlerta) {
       // solo reportar "resuelta" si de verdad habia una alarma activa
