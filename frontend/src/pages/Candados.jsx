@@ -30,11 +30,18 @@ export default function Candados() {
 
   const POR_PAGINA = 5
 
-  useEffect(() => { cargar() }, [])
+  // Carga inicial + refresco automatico cada 60s (ubicacion, bateria, en_linea)
+  useEffect(() => {
+    cargar()
+    const t = setInterval(cargar, 60000)
+    return () => clearInterval(t)
+  }, [])
 
   async function cargar() {
-    const res = await api.get('/candados/')
-    setCandados(res.data)
+    try {
+      const res = await api.get('/candados/')
+      setCandados(res.data)
+    } catch { /* noop */ }
   }
 
   async function handleSubmit(e) {
