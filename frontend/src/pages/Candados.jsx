@@ -75,7 +75,7 @@ export default function Candados() {
     })
   }
 
-  const conectados = candados.filter(c => c.ultima_conexion).length
+  const conectados = candados.filter(c => c.en_linea).length
   const conBateria = candados.filter(c => c.nivel_bateria != null)
   const batProm = conBateria.length ? Math.round(conBateria.reduce((s, c) => s + c.nivel_bateria, 0) / conBateria.length) : null
   const visibles = limite === 'todos' ? candados : candados.slice(0, Number(limite))
@@ -156,6 +156,9 @@ export default function Candados() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
+                  {c.en_linea
+                    ? <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: 'rgba(16,185,129,.15)', color: '#34d399' }}>🟢 En línea</span>
+                    : <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>🔴 Desconectado</span>}
                   <span className="text-xs px-2.5 py-1 rounded-full capitalize font-semibold" style={estadoStyle[c.estado] ?? { background: 'var(--accent-soft)', color: 'var(--muted)' }}>{c.estado}</span>
                   {c.nivel_bateria != null && (
                     <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={c.nivel_bateria < 20 ? { background: 'rgba(239,68,68,.15)', color: '#f87171' } : { background: 'var(--accent-soft)', color: 'var(--accent)' }}>🔋 {c.nivel_bateria}%</span>

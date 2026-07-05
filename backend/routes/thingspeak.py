@@ -40,10 +40,12 @@ EVENTO_MAP = {
 }
 
 # Codigo de salud (field5) -> tipo_evento de fallo
+# NOTA: el 3 (fallo_solenoide) se IGNORA a proposito: en pruebas de mesa el
+# reed no confirma la apertura y generaba alertas que no aportan; queda solo
+# en el log serial del Arduino.
 SALUD_MAP = {
     1: "fallo_rfid",
     2: "fallo_mpu",
-    3: "fallo_solenoide",
 }
 
 

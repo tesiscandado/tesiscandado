@@ -35,6 +35,27 @@ class DetenerRutaInput(BaseModel):
 
 
 # ── Candados ─────────────────────────────────────────────────
+# El candado reporta (heartbeat) cada 3 min; si lleva mas de 10 min sin
+# reportar se considera DESCONECTADO (apagado o sin cobertura).
+_UMBRAL_DESCONECTADO_MIN = 10
+
+
+def _con_estado_conexion(candados):
+    from datetime import datetime, timezone, timedelta
+    ahora = datetime.now(timezone.utc)
+    for c in candados:
+        en_linea = False
+        uc = c.get("ultima_conexion")
+        if uc:
+            try:
+                dt = datetime.fromisoformat(uc.replace("Z", "+00:00"))
+                en_linea = (ahora - dt) < timedelta(minutes=_UMBRAL_DESCONECTADO_MIN)
+            except (ValueError, AttributeError):
+                pass
+        c["en_linea"] = en_linea
+    return candados
+
+
 @router.get("/")
 def listar_candados():
     # Sincroniza con ThingSpeak antes de listar; nunca rompe la respuesta
@@ -44,7 +65,7 @@ def listar_candados():
     except Exception:
         pass
     res = supabase.table("candados").select("*").order("id").execute()
-    return res.data
+    return _con_estado_conexion(res.data)
 
 
 @router.post("/")
@@ -189,6 +210,8 @@ def ruta_candado(id: int, limite: int = 2000):
         supabase.table("alarmas")
         .select("id, atendida, eventos(id, latitud, longitud, ocurrido_en, candado_id, tipos_evento(nombre, severidad))")
         .eq("atendida", False)
+        .gte("nivel", 2)   # al mapa solo alarmas de peligro (no avisos nivel 1
+                           # como "Intento de apertura autorizado")
         .execute()
     )
     for a in res_al.data or []:
@@ -370,9 +393,13 @@ def ver_ruta_guardada(id: int, ruta_id: int):
         .execute()
     )
 
-    # Alarmas ocurridas durante la ruta (entre inicio y fin)
+    # Alarmas ocurridas durante la ruta (entre inicio y fin). Solo severidad
+    # 2+ (peligro real): los avisos de acceso autorizado no marcan la ruta.
     alarmas = []
-    tipos = supabase.table("tipos_evento").select("id").eq("es_alarma", True).execute()
+    tipos = (
+        supabase.table("tipos_evento").select("id")
+        .eq("es_alarma", True).gte("severidad", 2).execute()
+    )
     ids_alarma = [t["id"] for t in tipos.data] if tipos.data else []
     if ids_alarma and r.get("iniciada_en"):
         q = (

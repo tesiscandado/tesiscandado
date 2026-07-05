@@ -15,8 +15,11 @@ def resumen():
         pass
 
     candados = supabase.table("candados").select("*").execute()
+    from routes.candados import _con_estado_conexion
+    _con_estado_conexion(candados.data)
     total_candados = len(candados.data)
-    activos = [c for c in candados.data if c["ultima_conexion"] is not None]
+    # "activos" = reportando ahora mismo (no solo que alguna vez se conectaron)
+    activos = [c for c in candados.data if c.get("en_linea")]
 
     # Total operadores
     rol_op = supabase.table("roles").select("id").eq("nombre", "operador").single().execute()
