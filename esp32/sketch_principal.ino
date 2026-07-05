@@ -39,10 +39,12 @@
     SDO/ALT ADDRESS -> GND (direccion 0x53)
 
   --- Sensor HALL KY-024 (reemplaza al REED danado) ---
-    D0 -> GPIO26    VCC -> 3.3V    GND -> GND    (A0 sin usar)
-    CALIBRACION: pega el iman en posicion "cerrado" y gira el potenciometro
-    hasta que el LED de senal (L2) cambie justo al acercar/alejar el iman.
-    Si tu modulo entrega D0 al reves, cambia HALL_DETECTA_ALTO abajo.
+    A0 -> GPIO26    VCC -> 3.3V    GND -> GND    (D0 sin usar)
+    Se usa la salida ANALOGICA: el umbral se controla por software (no
+    depende del potenciometro). Sin iman el hall entrega ~VCC/2; con el
+    iman cerca la lectura se aleja de ese centro (sube o baja segun el polo).
+    CALIBRACION: mira "Hall=" en el [STATUS] del Monitor Serie con y sin
+    iman, y ajusta HALL_UMBRAL_ON/OFF si hace falta.
 
   --- Buzzer (modulo 3 pines, ACTIVO EN LOW) ---
     VCC -> 3.3V    GND -> GND    I/O -> GPIO25
@@ -88,7 +90,7 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define SIM_TX 17   // ESP32 TX2 -> SIM808 RXD
 #define SS_PIN 5
 #define RST_PIN 27
-#define HALL_PIN 26       // KY-024 salida D0 (reemplaza al sensor REED)
+#define HALL_PIN 26       // KY-024 salida A0 (analogica; reemplaza al sensor REED)
 #define BUZZER_PIN 25
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
@@ -103,14 +105,21 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define BUZZER_ON  LOW
 #define BUZZER_OFF HIGH
 
-// KY-024: la mayoria pone D0 en ALTO cuando detecta el iman (LED L2 encendido).
-// Si el tuyo hace lo contrario (con el iman pegado D0 queda LOW), cambia a false.
-#define HALL_DETECTA_ALTO true
+// KY-024 por A0 (analogico, 12 bits: 0-4095). Sin iman la lectura ronda el
+// centro (~VCC/2 = ~2048); con el iman pegado se aleja del centro.
+// CALIBRAR viendo "Hall=" en el [STATUS]: anota la lectura SIN iman (neutral)
+// y CON iman, y deja los umbrales entre medio (ON > OFF = histeresis).
+const int HALL_NEUTRAL    = 2048;  // lectura aproximada sin iman
+const int HALL_UMBRAL_ON  = 400;   // |lectura-neutral| mayor  -> iman PRESENTE
+const int HALL_UMBRAL_OFF = 250;   // |lectura-neutral| menor  -> iman AUSENTE
 
-// true = iman presente = candado CERRADO
+// true = iman presente = candado CERRADO (con histeresis para no parpadear)
+bool imanEstado = true;   // arranca asumiendo cerrado
 bool imanPresente() {
-  int v = digitalRead(HALL_PIN);
-  return HALL_DETECTA_ALTO ? (v == HIGH) : (v == LOW);
+  int d = abs(analogRead(HALL_PIN) - HALL_NEUTRAL);
+  if (d > HALL_UMBRAL_ON)       imanEstado = true;
+  else if (d < HALL_UMBRAL_OFF) imanEstado = false;
+  return imanEstado;   // entre OFF y ON conserva el estado anterior
 }
 
 // -------------------------
@@ -516,7 +525,7 @@ void sincronizarTokens() {
 // -------------------------
 void setup() {
   Serial.begin(115200);
-  pinMode(HALL_PIN, INPUT);   // el KY-024 maneja su propia salida (no usa pull-up)
+  // HALL_PIN se lee con analogRead (no necesita pinMode)
   pinMode(TOUCH_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_OFF);   // relay apagado al iniciar
@@ -596,9 +605,10 @@ void loop() {
   static unsigned long ultLog = 0;
   if (millis() - ultLog > 2000) {
     ultLog = millis();
-    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s\n",
+    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Hall=%d (%s)\n",
       digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO",
-      gpsActivo ? "ON" : "OFF");
+      gpsActivo ? "ON" : "OFF",
+      analogRead(HALL_PIN), imanPresente() ? "iman" : "SIN iman");
   }
 
   // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
