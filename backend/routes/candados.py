@@ -182,21 +182,26 @@ def ruta_candado(id: int, limite: int = 2000):
         .execute()
     )
 
-    # Alarmas con coordenadas (marcado automatico de tramos peligrosos)
+    # Alarmas NO ATENDIDAS con coordenadas: al atenderlas desde el dashboard
+    # desaparecen del mapa en vivo (antes se mostraban todas las historicas).
     alarmas = []
-    tipos = supabase.table("tipos_evento").select("id").eq("es_alarma", True).execute()
-    ids_alarma = [t["id"] for t in tipos.data] if tipos.data else []
-    if ids_alarma:
-        ev = (
-            supabase.table("eventos")
-            .select("id, latitud, longitud, ocurrido_en, tipos_evento(nombre, severidad)")
-            .eq("candado_id", id)
-            .in_("tipo_evento_id", ids_alarma)
-            .not_.is_("latitud", "null")
-            .order("ocurrido_en")
-            .execute()
-        )
-        alarmas = ev.data
+    res_al = (
+        supabase.table("alarmas")
+        .select("id, atendida, eventos(id, latitud, longitud, ocurrido_en, candado_id, tipos_evento(nombre, severidad))")
+        .eq("atendida", False)
+        .execute()
+    )
+    for a in res_al.data or []:
+        ev = a.get("eventos") or {}
+        if ev.get("candado_id") == id and ev.get("latitud") is not None:
+            alarmas.append({
+                "id":           ev["id"],
+                "latitud":      ev["latitud"],
+                "longitud":     ev["longitud"],
+                "ocurrido_en":  ev.get("ocurrido_en"),
+                "tipos_evento": ev.get("tipos_evento"),
+            })
+    alarmas.sort(key=lambda x: x.get("ocurrido_en") or "")
 
     # Ruta activa (control del GPS): la pagina muestra Iniciar/Detener segun esto
     ruta_activa = None
