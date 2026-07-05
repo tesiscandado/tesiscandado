@@ -42,15 +42,36 @@ def _tokens_activos(candado_id):
     return toks
 
 
+def _gps_activo(candado_id):
+    """True si el candado tiene una ruta en curso (estado='activa'):
+    el ESP32 debe encender el GPS y reportar posicion."""
+    try:
+        res = (
+            supabase.table("rutas")
+            .select("id")
+            .eq("candado_id", candado_id)
+            .eq("estado", "activa")
+            .limit(1)
+            .execute()
+        )
+        return bool(res.data)
+    except Exception:
+        return False   # si la tabla aun no existe, GPS apagado
+
+
 def publicar_tokens(candado_id):
-    """Reemplaza la cola del TalkBack por UN comando = lista CSV de tokens activos.
-    El ESP32 lo lee con .../commands/last.txt (sin consumirlo). Nunca lanza excepcion."""
-    csv = ",".join(_tokens_activos(candado_id))[:255]   # TalkBack: max 255 chars
+    """Reemplaza la cola del TalkBack por UN comando = CSV con los tokens activos
+    MAS el estado del GPS como ultimo elemento ('GPS:1' ruta activa / 'GPS:0' no).
+    Se agrega al final para que un firmware viejo lo trate como un token invalido
+    inofensivo. El ESP32 lo lee con commands.json (sin consumirlo).
+    Nunca lanza excepcion."""
+    partes = _tokens_activos(candado_id)
+    partes.append("GPS:1" if _gps_activo(candado_id) else "GPS:0")
+    csv = ",".join(partes)[:255]   # TalkBack: max 255 chars
     try:
         # Vaciar la cola (dejar solo la lista vigente)
         httpx.delete(f"{_BASE}.json", params={"api_key": TB_KEY}, timeout=10)
-        if csv:
-            httpx.post(f"{_BASE}.json", data={"api_key": TB_KEY, "command_string": csv}, timeout=10)
+        httpx.post(f"{_BASE}.json", data={"api_key": TB_KEY, "command_string": csv}, timeout=10)
         return csv
     except Exception:
         return None

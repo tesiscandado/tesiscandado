@@ -201,6 +201,11 @@ const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
 int  saludHW = 0;          // 0=ok 1=rfid 2=acelerometro 3=solenoide
 bool solenoideAbierto = false;
 
+// GPS bajo demanda (AHORRO DE BATERIA): el GPS arranca APAGADO y solo se
+// enciende cuando el admin inicia una ruta desde la pagina web. El backend
+// publica GPS:1 / GPS:0 como ultimo elemento del comando del TalkBack.
+bool gpsActivo = false;
+
 // fallos detectados
 bool falloRFID = false, falloMPU = false;
 
@@ -414,6 +419,20 @@ void actualizarGPS() {
   }
 }
 
+// Encender/apagar el GPS segun lo ordene la pagina web (via TalkBack)
+void aplicarEstadoGPS(bool activar) {
+  if (activar == gpsActivo) return;   // sin cambio
+  gpsActivo = activar;
+  if (activar) {
+    modem.enableGPS();
+    Serial.println(">>> RUTA INICIADA: GPS encendido (reporta posicion cada 3 min)");
+  } else {
+    modem.disableGPS();
+    ultLat = 0; ultLon = 0;   // no reportar coordenadas viejas con el GPS apagado
+    Serial.println(">>> RUTA DETENIDA: GPS apagado (ahorro de bateria)");
+  }
+}
+
 // -------------------------
 // SINCRONIZAR TOKENS (TalkBack de ThingSpeak, por HTTP)
 // Descarga la lista de tokens validos que publica el backend. Si falla,
@@ -458,17 +477,25 @@ void sincronizarTokens() {
   cuerpo.trim();
   if (cuerpo.length() == 0) { nTokensValidos = 0; return; }
 
-  // Separar el CSV en la lista
+  // Separar el CSV en la lista. El ultimo elemento puede ser el estado del
+  // GPS que ordena la pagina web: "GPS:1" (ruta activa) o "GPS:0" (apagado).
   int n = 0, ini = 0;
+  bool gpsVisto = false, gpsValor = false;
   while (ini <= (int)cuerpo.length() && n < MAX_TOKENS) {
     int coma = cuerpo.indexOf(',', ini);
     if (coma < 0) coma = cuerpo.length();
     String tk = cuerpo.substring(ini, coma); tk.trim();
-    if (tk.length() > 0) tokensValidos[n++] = tk;
+    if (tk.startsWith("GPS:")) {
+      gpsVisto = true;
+      gpsValor = (tk.substring(4).toInt() == 1);
+    } else if (tk.length() > 0) {
+      tokensValidos[n++] = tk;
+    }
     ini = coma + 1;
   }
   nTokensValidos = n;
   Serial.printf("Tokens sincronizados: %d\n", nTokensValidos);
+  if (gpsVisto) aplicarEstadoGPS(gpsValor);
 }
 
 // -------------------------
@@ -517,7 +544,10 @@ void setup() {
     delay(5000);
   }
   Serial.println(modem.isGprsConnected() ? "OK" : "FALLO");
-  modem.enableGPS();   // GPS encendido (en el SIM808, GPS y GPRS conviven sin problema)
+  // GPS APAGADO al arrancar (ahorro de bateria). Solo se enciende cuando el
+  // admin inicia una ruta en la pagina web (llega GPS:1 por el TalkBack;
+  // si el candado se reinicia en plena ruta, el proximo sync lo reactiva).
+  modem.disableGPS();
 
   // Abrir bearer GPRS para el motor HTTP nativo del SIM808
   enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
@@ -553,8 +583,9 @@ void loop() {
   static unsigned long ultLog = 0;
   if (millis() - ultLog > 2000) {
     ultLog = millis();
-    Serial.printf("[STATUS] Touch=%d  GPRS=%s\n",
-      digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO");
+    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s\n",
+      digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO",
+      gpsActivo ? "ON" : "OFF");
   }
 
   // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
@@ -671,9 +702,9 @@ void loop() {
     sincronizarTokens();
   }
 
-  // ===== TELEMETRIA periodica (GPS + bateria) =====
+  // ===== TELEMETRIA periodica (bateria; GPS solo con ruta activa) =====
   if (millis() - ultimoPost >= INTERVALO_POST) {
-    actualizarGPS();   // lee la posicion GPS y actualiza ultLat/ultLon (para la ruta)
+    if (gpsActivo) actualizarGPS();   // posicion solo durante una ruta
     ultBat = modem.getBattPercent();
     postThingSpeak(0, saludHW, "heartbeat");
   }

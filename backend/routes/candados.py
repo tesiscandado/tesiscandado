@@ -29,6 +29,11 @@ class EtiquetaRutaInput(BaseModel):
     hasta_id:  Optional[int] = None         # ...fin del tramo
 
 
+class DetenerRutaInput(BaseModel):
+    guardar: bool = True                # False = descartar la ruta y sus puntos
+    nombre:  Optional[str] = None       # nombre con el que se guarda
+
+
 # ── Candados ─────────────────────────────────────────────────
 @router.get("/")
 def listar_candados():
@@ -193,7 +198,22 @@ def ruta_candado(id: int, limite: int = 2000):
         )
         alarmas = ev.data
 
-    return {"puntos": puntos.data, "alarmas": alarmas}
+    # Ruta activa (control del GPS): la pagina muestra Iniciar/Detener segun esto
+    ruta_activa = None
+    try:
+        act = (
+            supabase.table("rutas")
+            .select("id, nombre, iniciada_en")
+            .eq("candado_id", id)
+            .eq("estado", "activa")
+            .limit(1)
+            .execute()
+        )
+        ruta_activa = act.data[0] if act.data else None
+    except Exception:
+        pass   # tabla rutas aun no creada
+
+    return {"puntos": puntos.data, "alarmas": alarmas, "ruta_activa": ruta_activa}
 
 
 @router.patch("/{id}/ruta/etiqueta")
@@ -256,3 +276,110 @@ def sync_tokens(id: int):
     if csv is None:
         raise HTTPException(status_code=502, detail="No se pudo publicar en ThingSpeak")
     return {"ok": True, "tokens": csv.split(",") if csv else []}
+
+
+# ── CONTROL DE RUTA (encender/apagar el GPS del candado) ────
+# El admin inicia una ruta desde la pagina: se crea una fila 'activa' en rutas
+# y se publica GPS:1 en el TalkBack. El ESP32 lo lee en su proximo sync
+# (max 3 min), enciende el GPS y reporta posicion. Al detener, GPS:0 lo apaga.
+
+@router.post("/{id}/ruta/iniciar")
+def iniciar_ruta(id: int):
+    act = (
+        supabase.table("rutas").select("id")
+        .eq("candado_id", id).eq("estado", "activa").limit(1).execute()
+    )
+    if act.data:
+        return {"ok": True, "ruta_id": act.data[0]["id"], "ya_activa": True}
+
+    res = supabase.table("rutas").insert({"candado_id": id, "estado": "activa"}).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="No se pudo crear la ruta")
+
+    from tokens_sync import publicar_tokens
+    publicar_tokens(id)   # publica GPS:1 (el candado lo ve en max 3 min)
+    return {"ok": True, "ruta_id": res.data[0]["id"]}
+
+
+@router.post("/{id}/ruta/detener")
+def detener_ruta(id: int, data: DetenerRutaInput):
+    from datetime import datetime, timezone
+    act = (
+        supabase.table("rutas").select("id, iniciada_en")
+        .eq("candado_id", id).eq("estado", "activa").limit(1).execute()
+    )
+    if not act.data:
+        raise HTTPException(status_code=404, detail="No hay ruta activa para este candado")
+    ruta_id = act.data[0]["id"]
+
+    if data.guardar:
+        nombre = data.nombre or f"Ruta {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')}"
+        supabase.table("rutas").update({
+            "estado": "guardada",
+            "nombre": nombre,
+            "finalizada_en": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", ruta_id).execute()
+    else:
+        # Descartada: se borran sus puntos para no ensuciar el mapa en vivo
+        supabase.table("rutas").update({
+            "estado": "descartada",
+            "finalizada_en": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", ruta_id).execute()
+        supabase.table("posiciones").delete().eq("ruta_id", ruta_id).execute()
+
+    from tokens_sync import publicar_tokens
+    publicar_tokens(id)   # publica GPS:0 (el candado apaga el GPS en max 3 min)
+    return {"ok": True, "ruta_id": ruta_id, "guardada": data.guardar}
+
+
+@router.get("/{id}/rutas")
+def listar_rutas(id: int):
+    """Rutas guardadas del candado (mas la activa, si hay), recientes primero."""
+    res = (
+        supabase.table("rutas")
+        .select("id, nombre, estado, iniciada_en, finalizada_en")
+        .eq("candado_id", id)
+        .in_("estado", ["activa", "guardada"])
+        .order("iniciada_en", desc=True)
+        .execute()
+    )
+    return res.data
+
+
+@router.get("/{id}/rutas/{ruta_id}")
+def ver_ruta_guardada(id: int, ruta_id: int):
+    """Puntos y alarmas de una ruta guardada, para verla en el mapa."""
+    ruta = (
+        supabase.table("rutas").select("id, nombre, estado, iniciada_en, finalizada_en")
+        .eq("id", ruta_id).eq("candado_id", id).limit(1).execute()
+    )
+    if not ruta.data:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    r = ruta.data[0]
+
+    puntos = (
+        supabase.table("posiciones")
+        .select("id, latitud, longitud, capturado_en, nivel_seguridad")
+        .eq("ruta_id", ruta_id)
+        .order("capturado_en")
+        .execute()
+    )
+
+    # Alarmas ocurridas durante la ruta (entre inicio y fin)
+    alarmas = []
+    tipos = supabase.table("tipos_evento").select("id").eq("es_alarma", True).execute()
+    ids_alarma = [t["id"] for t in tipos.data] if tipos.data else []
+    if ids_alarma and r.get("iniciada_en"):
+        q = (
+            supabase.table("eventos")
+            .select("id, latitud, longitud, ocurrido_en, tipos_evento(nombre, severidad)")
+            .eq("candado_id", id)
+            .in_("tipo_evento_id", ids_alarma)
+            .not_.is_("latitud", "null")
+            .gte("ocurrido_en", r["iniciada_en"])
+        )
+        if r.get("finalizada_en"):
+            q = q.lte("ocurrido_en", r["finalizada_en"])
+        alarmas = q.order("ocurrido_en").execute().data
+
+    return {"ruta": r, "puntos": puntos.data, "alarmas": alarmas}

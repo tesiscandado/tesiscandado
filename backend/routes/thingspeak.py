@@ -112,6 +112,18 @@ def _hacer_sync():
     candado_id = cand.data[0]["id"]
     last_entry = cand.data[0].get("ts_entry") or 0
 
+    # Ruta activa: los puntos GPS nuevos se asocian a ella (control desde la web)
+    ruta_id = None
+    try:
+        act = (
+            supabase.table("rutas").select("id")
+            .eq("candado_id", candado_id).eq("estado", "activa")
+            .limit(1).execute()
+        )
+        ruta_id = act.data[0]["id"] if act.data else None
+    except Exception:
+        pass   # tabla rutas aun no creada
+
     url = (
         f"https://api.thingspeak.com/channels/{TS_CHANNEL}/feeds.json"
         f"?api_key={TS_READ_KEY}&results=50"
@@ -147,7 +159,14 @@ def _hacer_sync():
             pos = {"candado_id": candado_id, "latitud": lat_f, "longitud": lon_f}
             if f.get("created_at"):
                 pos["capturado_en"] = f.get("created_at")
-            supabase.table("posiciones").insert(pos).execute()
+            if ruta_id is not None:
+                pos["ruta_id"] = ruta_id
+            try:
+                supabase.table("posiciones").insert(pos).execute()
+            except Exception:
+                # columna ruta_id aun no creada: guardar sin asociar
+                pos.pop("ruta_id", None)
+                supabase.table("posiciones").insert(pos).execute()
 
         # Eventos nuevos (las alarmas se guardan con las coordenadas del punto)
         ev_code  = int(_num(f.get("field4"))) if _num(f.get("field4")) is not None else 0

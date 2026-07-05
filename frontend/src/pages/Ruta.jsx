@@ -41,6 +41,11 @@ export default function Ruta() {
   const [selB, setSelB]           = useState(null)
   const [cargando, setCargando]   = useState(false)
   const [msg, setMsg]             = useState('')
+  const [rutaActiva, setRutaActiva] = useState(null)   // ruta en curso (GPS encendido)
+  const [rutas, setRutas]           = useState([])     // rutas guardadas
+  const [vista, setVista]           = useState('live') // 'live' o id de ruta guardada
+  const [pidiendoNombre, setPidiendoNombre] = useState(false)
+  const [nombreRuta, setNombreRuta] = useState('')
   const timer = useRef(null)
 
   // Cargar candados
@@ -51,13 +56,19 @@ export default function Ruta() {
     }).catch(() => {})
   }, [])
 
-  // Cargar ruta + refresco automatico cada 60s (el candado reporta GPS cada 3 min)
+  // Cargar ruta + refresco automatico cada 60s (solo en vista "en vivo")
   useEffect(() => {
     if (!candadoId) return
-    cargarRuta()
-    timer.current = setInterval(cargarRuta, 60000)
+    clearInterval(timer.current)
+    if (vista === 'live') {
+      cargarRuta()
+      timer.current = setInterval(cargarRuta, 60000)
+    } else {
+      cargarRutaGuardada(vista)
+    }
+    cargarRutas()
     return () => clearInterval(timer.current)
-  }, [candadoId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candadoId, vista]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarRuta() {
     if (!candadoId) return
@@ -65,7 +76,50 @@ export default function Ruta() {
       const res = await api.get(`/candados/${candadoId}/ruta`)
       setPuntos(res.data.puntos || [])
       setAlarmas(res.data.alarmas || [])
+      setRutaActiva(res.data.ruta_activa || null)
     } catch { /* noop */ }
+  }
+
+  async function cargarRutas() {
+    if (!candadoId) return
+    try {
+      const res = await api.get(`/candados/${candadoId}/rutas`)
+      setRutas(res.data || [])
+    } catch { /* noop */ }
+  }
+
+  async function cargarRutaGuardada(rutaId) {
+    try {
+      const res = await api.get(`/candados/${candadoId}/rutas/${rutaId}`)
+      setPuntos(res.data.puntos || [])
+      setAlarmas(res.data.alarmas || [])
+    } catch { setMsg('No se pudo cargar la ruta guardada') }
+  }
+
+  // ── Control de ruta (enciende/apaga el GPS del candado) ──
+  async function iniciarRuta() {
+    setCargando(true)
+    try {
+      await api.post(`/candados/${candadoId}/ruta/iniciar`)
+      setMsg('Ruta iniciada. El candado encenderá el GPS en máx. 3 min.')
+      await cargarRuta(); await cargarRutas()
+    } catch { setMsg('No se pudo iniciar la ruta') }
+    finally { setCargando(false) }
+  }
+
+  async function detenerRuta(guardar) {
+    setCargando(true)
+    try {
+      await api.post(`/candados/${candadoId}/ruta/detener`, {
+        guardar, nombre: guardar ? (nombreRuta.trim() || null) : null,
+      })
+      setMsg(guardar
+        ? 'Ruta guardada. El candado apagará el GPS en máx. 3 min.'
+        : 'Ruta descartada. El candado apagará el GPS en máx. 3 min.')
+      setPidiendoNombre(false); setNombreRuta('')
+      await cargarRuta(); await cargarRutas()
+    } catch { setMsg('No se pudo detener la ruta') }
+    finally { setCargando(false) }
   }
 
   // Seleccion de tramo: 1er clic = inicio, 2do clic = fin, 3er clic = reinicia
@@ -132,15 +186,30 @@ export default function Ruta() {
           <p className="t-mut text-sm">Recorrido en tiempo real con tramos seguros / peligrosos.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <select value={candadoId} onChange={e => { setCandadoId(Number(e.target.value)); setSelA(null); setSelB(null) }}
+          <select value={candadoId} onChange={e => { setCandadoId(Number(e.target.value)); setSelA(null); setSelB(null); setVista('live') }}
             className="fld rounded-lg px-3 py-2 text-sm">
             {candados.map(c => <option key={c.id} value={c.id}>{c.descripcion || c.codigo_dispositivo}</option>)}
           </select>
-          <span className="text-xs flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-            style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
-            <span className="w-2 h-2 rounded-full inline-block animate-pulse" style={{ background: '#ef4444' }} />
-            En vivo · cada 60s
-          </span>
+          <select value={vista} onChange={e => { setVista(e.target.value === 'live' ? 'live' : Number(e.target.value)); setSelA(null); setSelB(null) }}
+            className="fld rounded-lg px-3 py-2 text-sm">
+            <option value="live">En vivo</option>
+            {rutas.filter(r => r.estado === 'guardada').map(r => (
+              <option key={r.id} value={r.id}>
+                {r.nombre || `Ruta #${r.id}`} · {new Date(r.iniciada_en).toLocaleDateString()}
+              </option>
+            ))}
+          </select>
+          {vista === 'live' ? (
+            <span className="text-xs flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+              style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+              <span className="w-2 h-2 rounded-full inline-block animate-pulse" style={{ background: '#ef4444' }} />
+              En vivo · cada 60s
+            </span>
+          ) : (
+            <span className="text-xs flex items-center gap-1.5 px-2.5 py-1 rounded-full surface-soft border bd t-mut">
+              Ruta guardada
+            </span>
+          )}
         </div>
       </div>
 
@@ -182,6 +251,50 @@ export default function Ruta() {
 
         {/* Panel lateral */}
         <div className="flex flex-col gap-4">
+          {/* Control de ruta (GPS del candado) */}
+          <div className="surface-card rounded-2xl p-5">
+            <h3 className="font-display t-pri font-semibold mb-1">Control de ruta</h3>
+            <p className="t-mut text-xs mb-3">
+              El GPS del candado solo se enciende durante una ruta (ahorra batería).
+              El candado aplica el cambio en <b>máx. 3 min</b>.
+            </p>
+            {rutaActiva ? (
+              <>
+                <div className="rounded-lg px-3 py-2 mb-3 text-xs flex items-center gap-2"
+                  style={{ background: 'rgba(34,197,94,.12)', color: '#22c55e' }}>
+                  <span className="w-2 h-2 rounded-full inline-block animate-pulse" style={{ background: '#22c55e' }} />
+                  Ruta en curso desde {new Date(rutaActiva.iniciada_en).toLocaleTimeString()}
+                </div>
+                {pidiendoNombre ? (
+                  <div className="flex flex-col gap-2">
+                    <input value={nombreRuta} onChange={e => setNombreRuta(e.target.value)}
+                      placeholder="Nombre de la ruta (opcional)"
+                      className="fld rounded-lg px-3 py-2 text-sm" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => detenerRuta(true)} disabled={cargando}
+                        className={`${btnCls} btn-accent disabled:opacity-50`}>💾 Guardar</button>
+                      <button onClick={() => detenerRuta(false)} disabled={cargando}
+                        className={btnCls} style={{ background: 'rgba(239,68,68,.15)', color: '#ef4444' }}>🗑 Descartar</button>
+                    </div>
+                    <button onClick={() => setPidiendoNombre(false)}
+                      className={`${btnCls} surface-soft border bd t-mut`}>Cancelar</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setPidiendoNombre(true)} disabled={cargando || !candadoId}
+                    className={`${btnCls} w-full disabled:opacity-50`}
+                    style={{ background: 'rgba(239,68,68,.15)', color: '#ef4444' }}>
+                    ⏹ Detener ruta
+                  </button>
+                )}
+              </>
+            ) : (
+              <button onClick={iniciarRuta} disabled={cargando || !candadoId}
+                className={`${btnCls} w-full btn-accent disabled:opacity-50`}>
+                ▶ Iniciar ruta
+              </button>
+            )}
+          </div>
+
           {/* Etiquetar tramo */}
           <div className="surface-card rounded-2xl p-5">
             <h3 className="font-display t-pri font-semibold mb-1">Etiquetar tramo</h3>
