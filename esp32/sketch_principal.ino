@@ -46,9 +46,9 @@
     OJO: si el reed queda DESCONECTADO, el pin lee "abierto" y suena la
     alarma (es anti-sabotaje). Para probar sin reed: puente GPIO26-GND.
 
-  --- Buzzer (modulo 3 pines, ACTIVO EN LOW) ---
+  --- Buzzer (ACTIVO EN HIGH) ---
     VCC -> 3.3V    GND -> GND    I/O -> GPIO25
-    (I/O en LOW = suena, I/O en HIGH = silencio)
+    (I/O en HIGH = suena, I/O en LOW = silencio)
 
   --- TTP223B (touch capacitivo) ---
     I/O -> GPIO33    VCC -> 3.3V    GND -> GND
@@ -97,18 +97,20 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
 
-// El XY-J02 suele ser ACTIVO EN BAJO (IN=LOW -> relay ON).
-// Si tu modulo activa al reves, cambia a true.
-#define RELAY_ACTIVO_ALTO false
+// Trigger del relay ACTIVO EN ALTO (confirmado en pruebas: con la logica
+// invertida el solenoide quedaba activado desde el arranque).
+// Si algun dia cambian el modulo y dispara al reves, poner false.
+#define RELAY_ACTIVO_ALTO true
 #define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
 #define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
 // Tiempo que el solenoide queda ABIERTO tras un acceso autorizado
 const unsigned long APERTURA_MS = 15000;   // 15 segundos
 
-// Modulo buzzer de 3 pines: ACTIVO EN BAJO (I/O=LOW -> suena)
-#define BUZZER_ON  LOW
-#define BUZZER_OFF HIGH
+// Buzzer ACTIVO EN ALTO (confirmado en pruebas: con la logica invertida
+// sonaba desde el arranque). Si cambian el modulo, invertir estos dos.
+#define BUZZER_ON  HIGH
+#define BUZZER_OFF LOW
 
 // -------------------------
 // ADXL345 (acelerometro I2C, direccion 0x53)
@@ -330,7 +332,7 @@ void reportar(int evento, int salud, const char* status) {
 }
 
 // -------------------------
-// BUZZER (modulo 3 pines, activo en LOW)
+// BUZZER (activo en HIGH)
 // -------------------------
 void beep(int ms) {
   digitalWrite(BUZZER_PIN, BUZZER_ON);
@@ -699,7 +701,7 @@ void loop() {
     contadorEventos = 0; inicioVentana = millis();
   }
 
-  // ===== BUZZER (activo en LOW) =====
+  // ===== BUZZER (activo en HIGH) =====
   bool alarma = reedAlerta || mpuAlerta;
   static unsigned long ultimoCambio = 0; static bool sirena = false;
   if (alarma) {
