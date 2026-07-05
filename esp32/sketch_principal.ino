@@ -12,10 +12,13 @@
     10=reed 12=impacto 13=forcejeo 14=resuelta
   Codigos salud (field5):  0=ok 1=fallo_rfid 2=fallo_acel 3=fallo_solenoide
 
+  GPS BAJO DEMANDA (ahorro de bateria): el GPS arranca APAGADO. Cuando el
+  admin pone "Iniciar ruta" en la pagina web, el backend publica GPS:1 en el
+  TalkBack y el candado lo enciende (max 3 min); "Detener ruta" -> GPS:0.
+
   Libreria: TinyGSM (Library Manager).
-  NOTA: la validacion del token RFID es LOCAL (offline), porque ThingSpeak
-        no permite pregunta-respuesta en tiempo real. La lista se sincronizara
-        luego via ThingSpeak TalkBack.
+  NOTA: la validacion del token RFID es LOCAL (offline): la lista de tokens
+        se descarga del TalkBack de ThingSpeak cada 3 min.
 
   =====================================================================
   MAPA DE CONEXIONES (todo a GND comun)
@@ -38,13 +41,10 @@
     CS  -> 3.3V (fuerza modo I2C)
     SDO/ALT ADDRESS -> GND (direccion 0x53)
 
-  --- Sensor HALL KY-024 (reemplaza al REED danado) ---
-    A0 -> GPIO26    VCC -> 3.3V    GND -> GND    (D0 sin usar)
-    Se usa la salida ANALOGICA: el umbral se controla por software (no
-    depende del potenciometro). Sin iman el hall entrega ~VCC/2; con el
-    iman cerca la lectura se aleja de ese centro (sube o baja segun el polo).
-    CALIBRACION: mira "Hall=" en el [STATUS] del Monitor Serie con y sin
-    iman, y ajusta HALL_UMBRAL_ON/OFF si hace falta.
+  --- Sensor REED ---
+    Un extremo -> GPIO26    otro extremo -> GND   (usa pull-up interno)
+    OJO: si el reed queda DESCONECTADO, el pin lee "abierto" y suena la
+    alarma (es anti-sabotaje). Para probar sin reed: puente GPIO26-GND.
 
   --- Buzzer (modulo 3 pines, ACTIVO EN LOW) ---
     VCC -> 3.3V    GND -> GND    I/O -> GPIO25
@@ -58,7 +58,9 @@
     Trigger -> GPIO13     GND_T -> GND del ESP32  (referencia del disparo!)
     6~30V   -> +12V (boost)   GND -> GND
     COM -> +12V    NO -> Solenoide(+)    Solenoide(-) -> GND
-    Configurar modo OP, tiempo 3.0s. Diodo flyback 1N4007 en el solenoide.
+    APERTURA: el ESP32 mantiene el trigger activo 15s. Configurar el XY-J02
+    para que el relay siga al trigger, o su temporizador en 15s.
+    Diodo flyback 1N4007 en el solenoide.
 
   --- ALIMENTACION ---
     Bateria LiPo 1S -> alimenta ESP32, SIM808, RC522, ADXL345, sensores
@@ -90,7 +92,7 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define SIM_TX 17   // ESP32 TX2 -> SIM808 RXD
 #define SS_PIN 5
 #define RST_PIN 27
-#define HALL_PIN 26       // KY-024 salida A0 (analogica; reemplaza al sensor REED)
+#define REED_PIN 26
 #define BUZZER_PIN 25
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
@@ -101,26 +103,12 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
 #define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
+// Tiempo que el solenoide queda ABIERTO tras un acceso autorizado
+const unsigned long APERTURA_MS = 15000;   // 15 segundos
+
 // Modulo buzzer de 3 pines: ACTIVO EN BAJO (I/O=LOW -> suena)
 #define BUZZER_ON  LOW
 #define BUZZER_OFF HIGH
-
-// KY-024 por A0 (analogico, 12 bits: 0-4095). Sin iman la lectura ronda el
-// centro (~VCC/2 = ~2048); con el iman pegado se aleja del centro.
-// CALIBRAR viendo "Hall=" en el [STATUS]: anota la lectura SIN iman (neutral)
-// y CON iman, y deja los umbrales entre medio (ON > OFF = histeresis).
-const int HALL_NEUTRAL    = 2048;  // lectura aproximada sin iman
-const int HALL_UMBRAL_ON  = 400;   // |lectura-neutral| mayor  -> iman PRESENTE
-const int HALL_UMBRAL_OFF = 250;   // |lectura-neutral| menor  -> iman AUSENTE
-
-// true = iman presente = candado CERRADO (con histeresis para no parpadear)
-bool imanEstado = true;   // arranca asumiendo cerrado
-bool imanPresente() {
-  int d = abs(analogRead(HALL_PIN) - HALL_NEUTRAL);
-  if (d > HALL_UMBRAL_ON)       imanEstado = true;
-  else if (d < HALL_UMBRAL_OFF) imanEstado = false;
-  return imanEstado;   // entre OFF y ON conserva el estado anterior
-}
 
 // -------------------------
 // ADXL345 (acelerometro I2C, direccion 0x53)
@@ -187,8 +175,8 @@ const int   N_SEED        = sizeof(TOKENS_SEED) / sizeof(TOKENS_SEED[0]);
 String tokensValidos[MAX_TOKENS];      // lista vigente (se llena al sincronizar)
 int    nTokensValidos = 0;
 unsigned long ultimoSyncTokens = 0;
-// Cada 3 min (antes 60s): cada peticion GPRS gasta bateria. Un token nuevo
-// tarda hasta 3 min en activarse en el candado (aceptable).
+// Cada 3 min (bateria): cada peticion GPRS enciende la radio del SIM808.
+// Un token nuevo (o Iniciar/Detener ruta) tarda hasta 3 min en aplicarse.
 const unsigned long INTERVALO_SYNC_TOKENS = 180000;
 
 // -------------------------
@@ -215,17 +203,14 @@ const unsigned long COOLDOWN_RFID = 3000;
 float ultLat = 0, ultLon = 0;
 int   ultBat = 0;
 unsigned long ultimoPost = 0;
-// Heartbeat (GPS+bateria) cada 3 min (antes 60s) para AHORRAR BATERIA:
-// cada post por GPRS enciende la radio del SIM808 varios segundos.
-// Las ALARMAS y ACCESOS se siguen reportando AL INSTANTE (no les afecta).
+// Heartbeat (bateria; GPS solo con ruta activa) cada 3 min para ahorrar pila
 const unsigned long INTERVALO_POST = 180000;
 const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
 int  saludHW = 0;          // 0=ok 1=rfid 2=acelerometro 3=solenoide
 bool solenoideAbierto = false;
 
-// GPS bajo demanda (AHORRO DE BATERIA): el GPS arranca APAGADO y solo se
-// enciende cuando el admin inicia una ruta desde la pagina web. El backend
-// publica GPS:1 / GPS:0 como ultimo elemento del comando del TalkBack.
+// GPS bajo demanda (AHORRO DE BATERIA): arranca APAGADO; la web lo enciende
+// al iniciar una ruta (flag GPS:1/GPS:0 en el comando del TalkBack).
 bool gpsActivo = false;
 
 // fallos detectados
@@ -354,32 +339,38 @@ void beep(int ms) {
 }
 
 // -------------------------
-// SOLENOIDE
+// SOLENOIDE (apertura de 15 segundos)
 // -------------------------
 void abrirSolenoide() {
-  // El modulo temporizador XY-J02 maneja los 3s de apertura.
-  // El ESP32 solo manda un PULSO corto en Trigger.
   solenoideAbierto = true;
-  Serial.println("Disparando solenoide (pulso 300ms en el relay)...");
-  digitalWrite(RELAY_PIN, RELAY_ON);
-  delay(300);                          // pulso de disparo
-  digitalWrite(RELAY_PIN, RELAY_OFF);
+  digitalWrite(BUZZER_PIN, BUZZER_OFF);   // silencio durante la apertura
+  Serial.printf("Abriendo solenoide (%lus)...\n", APERTURA_MS / 1000);
 
-  // Confirmar apertura con el sensor magnetico durante la ventana del temporizador
+  // Mantener el trigger ACTIVO los 15s completos.
+  // (Si el XY-J02 esta en modo temporizador, configurar su tiempo en 15s.)
+  digitalWrite(RELAY_PIN, RELAY_ON);
+
+  // Vigilar el reed durante la ventana: debe confirmar que abrio
   unsigned long t = millis();
   bool confirmo = false;
-  while (millis() - t < 3000) {
-    if (!imanPresente()) { confirmo = true; break; }   // iman se alejo = abrio
+  while (millis() - t < APERTURA_MS) {
+    if (!confirmo && digitalRead(REED_PIN) == HIGH) {
+      confirmo = true;
+      Serial.println("Apertura confirmada por el reed");
+    }
     delay(50);
   }
+  digitalWrite(RELAY_PIN, RELAY_OFF);
+  Serial.println("Solenoide cerrado (fin de la ventana de apertura)");
+
   if (!confirmo) {
-    saludHW = 3; // fallo_solenoide: se disparo pero el sensor no confirmo apertura
+    saludHW = 3; // fallo_solenoide: se disparo pero el reed no confirmo apertura
     Serial.println("FALLO SOLENOIDE: no confirmo apertura");
     reportar(0, 3, "Solenoide no confirmo apertura");
   }
-  // Resincronizar el sensor: la puerta quedo abierta por un acceso AUTORIZADO.
-  // Sin esto, el loop la detectaba como alarma de apertura (falsa alarma).
-  reedEstadoAnt = imanPresente();
+  // Resincronizar el reed: la puerta quedo abierta por un acceso AUTORIZADO.
+  // Sin esto, el loop la detectaba como "ALERTA REED" (falsa alarma).
+  reedEstadoAnt = (digitalRead(REED_PIN) == LOW);
   solenoideAbierto = false;
 }
 
@@ -460,6 +451,7 @@ void aplicarEstadoGPS(bool activar) {
 // SINCRONIZAR TOKENS (TalkBack de ThingSpeak, por HTTP)
 // Descarga la lista de tokens validos que publica el backend. Si falla,
 // CONSERVA la lista anterior (el candado sigue funcionando offline).
+// El ultimo elemento puede ser GPS:1/GPS:0 (control del GPS desde la web).
 // -------------------------
 void sincronizarTokens() {
   if (!modem.isGprsConnected()) return;
@@ -486,7 +478,7 @@ void sincronizarTokens() {
   }
   if (code != 200) return;   // si fallo, se conserva la lista anterior
 
-  // Extraer el CSV de  "command_string":"LCBN8CC,AB12CD3"
+  // Extraer el CSV de  "command_string":"LCBN8CC,AB12CD3,GPS:0"
   int k = resp.indexOf("\"command_string\":\"");
   if (k < 0) {                      // cola vacia -> sin tokens autorizados
     nTokensValidos = 0;
@@ -500,8 +492,8 @@ void sincronizarTokens() {
   cuerpo.trim();
   if (cuerpo.length() == 0) { nTokensValidos = 0; return; }
 
-  // Separar el CSV en la lista. El ultimo elemento puede ser el estado del
-  // GPS que ordena la pagina web: "GPS:1" (ruta activa) o "GPS:0" (apagado).
+  // Separar el CSV en la lista. El elemento "GPS:x" NO es un token:
+  // es la orden de la web para encender (1) o apagar (0) el GPS.
   int n = 0, ini = 0;
   bool gpsVisto = false, gpsValor = false;
   while (ini <= (int)cuerpo.length() && n < MAX_TOKENS) {
@@ -526,7 +518,7 @@ void sincronizarTokens() {
 // -------------------------
 void setup() {
   Serial.begin(115200);
-  // HALL_PIN se lee con analogRead (no necesita pinMode)
+  pinMode(REED_PIN, INPUT_PULLUP);
   pinMode(TOUCH_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_OFF);   // relay apagado al iniciar
@@ -602,14 +594,14 @@ void setup() {
 // -------------------------
 void loop() {
 
-  // ===== DIAGNOSTICO cada 2s: estado del touch y GPRS =====
+  // ===== DIAGNOSTICO cada 2s: touch, GPRS, GPS y reed =====
   static unsigned long ultLog = 0;
   if (millis() - ultLog > 2000) {
     ultLog = millis();
-    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Hall=%d (%s)\n",
+    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Reed=%s\n",
       digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO",
       gpsActivo ? "ON" : "OFF",
-      analogRead(HALL_PIN), imanPresente() ? "iman" : "SIN iman");
+      digitalRead(REED_PIN) == LOW ? "cerrado" : "ABIERTO");
   }
 
   // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
@@ -661,12 +653,12 @@ void loop() {
     }
   }
 
-  // ===== SENSOR MAGNETICO (HALL KY-024, antes REED) =====
-  bool reedDetecta = imanPresente();   // true = iman presente = cerrado
+  // ===== REED =====
+  bool reedDetecta = (digitalRead(REED_PIN) == LOW);
   if (reedEstadoAnt != reedDetecta) {
     if (!reedDetecta && !solenoideAbierto) {
       reedAlerta = true;
-      Serial.println("ALERTA APERTURA (hall)");
+      Serial.println("ALERTA REED");
       reportar(10, saludHW, "Puerta abierta sin autorizacion");
     } else if (reedDetecta && reedAlerta) {
       // solo reportar "resuelta" si de verdad habia una alarma activa
@@ -743,7 +735,7 @@ void loop() {
     }
   }
 
-  // ===== SYNC de tokens autorizados (cada 60s) =====
+  // ===== SYNC de tokens autorizados + orden GPS de la web (cada 3 min) =====
   if (millis() - ultimoSyncTokens >= INTERVALO_SYNC_TOKENS) {
     ultimoSyncTokens = millis();
     sincronizarTokens();
