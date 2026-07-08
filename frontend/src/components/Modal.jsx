@@ -45,7 +45,7 @@ export function ConfirmModal({ open, title = 'Confirmar', mensaje, onConfirm, on
 }
 
 // Modal con mapa (OpenStreetMap, sin API key) y marcador en las coordenadas
-export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true }) {
+export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true, cargando = false }) {
   const tiene = lat != null && lon != null
   const delta = 0.005
   const bbox = tiene
@@ -57,7 +57,16 @@ export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true }) 
 
   return (
     <Modal open={open} onClose={onClose} title={titulo} maxWidth="max-w-2xl">
-      {tiene && en_linea ? (
+      {cargando ? (
+        <div className="text-center py-10">
+          <p className="text-4xl mb-3 animate-pulse">📡</p>
+          <p className="t-pri font-medium">Solicitando ubicación al candado…</p>
+          <p className="t-mut text-sm mt-1">
+            El candado enciende el GPS solo un momento para responder.
+            Puede tardar hasta 2–3 minutos.
+          </p>
+        </div>
+      ) : tiene && en_linea ? (
         <div className="flex flex-col gap-3">
           <div className="rounded-xl overflow-hidden border bd">
             <iframe

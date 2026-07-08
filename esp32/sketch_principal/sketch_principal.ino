@@ -97,15 +97,24 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
 
-// Trigger del relay ACTIVO EN ALTO (confirmado en pruebas: con la logica
-// invertida el solenoide quedaba activado desde el arranque).
-// Si algun dia cambian el modulo y dispara al reves, poner false.
-#define RELAY_ACTIVO_ALTO true
+// Trigger del relay. Con true el solenoide quedaba energizado TODO el
+// tiempo (abierto permanente): el XY-J02 de este hardware dispara en BAJO,
+// igual que en la version que funcionaba en pruebas. Si cambian el modulo
+// y dispara al reves, poner true.
+#define RELAY_ACTIVO_ALTO false
 #define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
 #define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
-// Tiempo que el solenoide queda ABIERTO tras un acceso autorizado
-const unsigned long APERTURA_MS = 15000;   // 15 segundos
+// Apertura: el ESP32 manda un PULSO corto en el Trigger y el XY-J02 (modo
+// temporizador) mantiene el solenoide abierto el tiempo configurado EN EL
+// MODULO. La ventana solo espera la confirmacion del reed.
+const unsigned long PULSO_TRIGGER_MS   = 300;    // duracion del pulso de disparo
+const unsigned long VENTANA_CONFIRM_MS = 3000;   // tiempo de apertura del XY-J02
+
+// Pausar las alarmas del sensor reed (pruebas de mesa: sin puerta real el
+// reed dispara "Puerta abierta sin autorizacion" a cada rato y llena el
+// panel de alertas). Poner true al instalar el candado en la puerta.
+const bool ALERTAS_REED_ACTIVAS = false;
 
 // Buzzer ACTIVO EN ALTO (confirmado en pruebas: con la logica invertida
 // sonaba desde el arranque). Si cambian el modulo, invertir estos dos.
@@ -341,29 +350,30 @@ void beep(int ms) {
 }
 
 // -------------------------
-// SOLENOIDE (apertura de 15 segundos)
+// SOLENOIDE (pulso corto; el XY-J02 temporiza la apertura)
 // -------------------------
 void abrirSolenoide() {
   solenoideAbierto = true;
   digitalWrite(BUZZER_PIN, BUZZER_OFF);   // silencio durante la apertura
-  Serial.printf("Abriendo solenoide (%lus)...\n", APERTURA_MS / 1000);
+  Serial.println("Abriendo solenoide (pulso al XY-J02)...");
 
-  // Mantener el trigger ACTIVO los 15s completos.
-  // (Si el XY-J02 esta en modo temporizador, configurar su tiempo en 15s.)
+  // Pulso de disparo: el XY-J02 mantiene el solenoide abierto su tiempo
+  // configurado y lo suelta solo (el ESP32 NO retiene el trigger).
   digitalWrite(RELAY_PIN, RELAY_ON);
+  delay(PULSO_TRIGGER_MS);
+  digitalWrite(RELAY_PIN, RELAY_OFF);
 
-  // Vigilar el reed durante la ventana: debe confirmar que abrio
+  // Vigilar el reed durante la ventana del temporizador: debe confirmar apertura
   unsigned long t = millis();
   bool confirmo = false;
-  while (millis() - t < APERTURA_MS) {
+  while (millis() - t < VENTANA_CONFIRM_MS) {
     if (!confirmo && digitalRead(REED_PIN) == HIGH) {
       confirmo = true;
       Serial.println("Apertura confirmada por el reed");
     }
     delay(50);
   }
-  digitalWrite(RELAY_PIN, RELAY_OFF);
-  Serial.println("Solenoide cerrado (fin de la ventana de apertura)");
+  Serial.println("Fin de la ventana de apertura");
 
   if (!confirmo) {
     saludHW = 3; // fallo_solenoide: se disparo pero el reed no confirmo apertura
@@ -478,6 +488,8 @@ void capturarUbicacionOnDemand() {
   // Actualizar variables globales y reportar a ThingSpeak
   if (lat != 0 && lon != 0) {
     ultLat = lat; ultLon = lon;
+    // Respetar el limite de ThingSpeak (1 post cada 15s) para no perder el envio
+    while (millis() - ultimoPost < MIN_ENTRE_POST) delay(500);
     postThingSpeak(0, saludHW, "Ubicacion on-demand");   // evento 0, solo GPS
     Serial.printf("Ubicacion reportada a ThingSpeak: %.6f, %.6f\n", lat, lon);
   } else {
@@ -537,12 +549,16 @@ void sincronizarTokens() {
   Serial.printf("CSV extraido: [%s]\n", cuerpo.c_str());
   if (cuerpo.length() == 0) { nTokensValidos = 0; Serial.println("CSV vacio"); return; }
 
-  // Separar el CSV en la lista. Comandos especiales:
-  // "GPS:x"     -> orden de encender (1) o apagar (0) GPS para ruta
-  // "LOCATION"  -> solicitud puntual de ubicación (web -> "Localizar")
+  // Separar el CSV en la lista. Comandos especiales (NO son tokens):
+  // "GPS:x"       -> encender (1) o apagar (0) el GPS para una ruta
+  // "LOC:<nonce>" -> solicitud puntual de ubicacion (boton "Localizar").
+  //                  El nonce cambia en cada solicitud: solo se ejecuta si es
+  //                  distinto al ultimo visto (asi no se repite en cada sync).
+  static String ultimoLoc = "";
+  static bool primeraSync = true;
   int n = 0, ini = 0;
   bool gpsVisto = false, gpsValor = false;
-  bool locationVisto = false;
+  String locVisto = "";
   while (ini <= (int)cuerpo.length() && n < MAX_TOKENS) {
     int coma = cuerpo.indexOf(',', ini);
     if (coma < 0) coma = cuerpo.length();
@@ -550,8 +566,8 @@ void sincronizarTokens() {
     if (tk.startsWith("GPS:")) {
       gpsVisto = true;
       gpsValor = (tk.substring(4).toInt() == 1);
-    } else if (tk.equals("LOCATION")) {
-      locationVisto = true;
+    } else if (tk.startsWith("LOC:")) {
+      locVisto = tk;
     } else if (tk.length() > 0) {
       tokensValidos[n++] = tk;
     }
@@ -560,7 +576,14 @@ void sincronizarTokens() {
   nTokensValidos = n;
   Serial.printf("Tokens sincronizados: %d\n", nTokensValidos);
   if (gpsVisto) aplicarEstadoGPS(gpsValor);
-  if (locationVisto) capturarUbicacionOnDemand();   // GPS momentaneo para "Localizar"
+
+  if (locVisto.length() > 0 && locVisto != ultimoLoc) {
+    ultimoLoc = locVisto;
+    // En el primer sync (arranque) solo se toma nota: un LOC viejo que quedo
+    // en el TalkBack no debe disparar una captura cada vez que se reinicia.
+    if (!primeraSync) capturarUbicacionOnDemand();
+  }
+  primeraSync = false;
 }
 
 // -------------------------
@@ -707,9 +730,13 @@ void loop() {
   bool reedDetecta = (digitalRead(REED_PIN) == LOW);
   if (reedEstadoAnt != reedDetecta) {
     if (!reedDetecta && !solenoideAbierto) {
-      reedAlerta = true;
-      Serial.println("ALERTA REED");
-      reportar(10, saludHW, "Puerta abierta sin autorizacion");
+      if (ALERTAS_REED_ACTIVAS) {
+        reedAlerta = true;
+        Serial.println("ALERTA REED");
+        reportar(10, saludHW, "Puerta abierta sin autorizacion");
+      } else {
+        Serial.println("Reed abierto (alertas de reed PAUSADAS)");
+      }
     } else if (reedDetecta && reedAlerta) {
       // solo reportar "resuelta" si de verdad habia una alarma activa
       reedAlerta = false;

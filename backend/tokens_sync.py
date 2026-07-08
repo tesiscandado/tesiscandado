@@ -59,14 +59,19 @@ def _gps_activo(candado_id):
         return False   # si la tabla aun no existe, GPS apagado
 
 
-def publicar_tokens(candado_id):
+def publicar_tokens(candado_id, extra=None):
     """Reemplaza la cola del TalkBack por UN comando = CSV con los tokens activos
     MAS el estado del GPS como ultimo elemento ('GPS:1' ruta activa / 'GPS:0' no).
     Se agrega al final para que un firmware viejo lo trate como un token invalido
     inofensivo. El ESP32 lo lee con commands.json (sin consumirlo).
+
+    'extra' agrega un comando adicional al final (ej: 'LOC:1736300000' para
+    solicitar ubicacion on-demand) SIN perder la lista de tokens.
     Nunca lanza excepcion."""
     partes = _tokens_activos(candado_id)
     partes.append("GPS:1" if _gps_activo(candado_id) else "GPS:0")
+    if extra:
+        partes.append(extra)
     csv = ",".join(partes)[:255]   # TalkBack: max 255 chars
     try:
         # Vaciar la cola (dejar solo la lista vigente)
@@ -75,14 +80,3 @@ def publicar_tokens(candado_id):
         return csv
     except Exception:
         return None
-
-
-def publicar_comando_talkback(comando):
-    """Publica un comando único en el TalkBack (ej: 'LOCATION' para solicitar GPS on-demand).
-    Reemplaza cualquier comando anterior. El ESP32 lo lee en su próxima sincronización."""
-    try:
-        httpx.delete(f"{_BASE}.json", params={"api_key": TB_KEY}, timeout=10)
-        httpx.post(f"{_BASE}.json", data={"api_key": TB_KEY, "command_string": comando[:255]}, timeout=10)
-        return True
-    except Exception:
-        return False

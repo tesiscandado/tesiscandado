@@ -130,22 +130,48 @@ def recibir_telemetria(data: TelemetriaInput):
 # ── Solicitud de ubicación on-demand ─────────────────────────
 @router.post("/{id}/solicitar-ubicacion")
 def solicitar_ubicacion(id: int):
-    """La página pide ubicación actual (on-demand). Publica 'LOCATION' en TalkBack
-    para que el ESP32 (al consultarlo en max 60s) encienda GPS momentáneamente,
-    capture coordenadas y reporte. Ahorra batería: GPS solo se activa ese instante."""
-    from routes.thingspeak import publicar_comando_talkback
+    """La página pide ubicación actual (on-demand). Publica en el TalkBack la
+    lista de tokens vigente + 'LOC:<nonce>': el ESP32 la ve en su próxima
+    sincronización, enciende el GPS un momento, reporta y lo vuelve a apagar.
+    El nonce evita que el candado repita la captura en cada sync."""
+    from datetime import datetime, timezone
+    from tokens_sync import publicar_tokens
 
-    # Obtener candado para verificar existencia
     res = supabase.table("candados").select("id").eq("id", id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Candado no encontrado")
 
-    # Publicar comando LOCATION en TalkBack para que ESP32 lo vea
+    ahora = datetime.now(timezone.utc)
+    csv = publicar_tokens(id, extra=f"LOC:{int(ahora.timestamp())}")
+    if csv is None:
+        raise HTTPException(status_code=502, detail="No se pudo publicar en ThingSpeak")
+    return {"ok": True, "solicitado_en": ahora.isoformat()}
+
+
+@router.get("/{id}/ubicacion-actual")
+def ubicacion_actual(id: int, desde: str = None):
+    """Última posición GPS del candado. Con ?desde=<ISO> solo devuelve una
+    posición capturada DESPUÉS de ese momento (para saber si el candado
+    respondió a una solicitud de ubicación, y no mostrar coordenadas viejas)."""
     try:
-        publicar_comando_talkback("LOCATION")
-        return {"ok": True, "mensaje": "Comando LOCATION enviado. GPS se activará en máx. 60s"}
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"No se pudo publicar comando: {str(e)}")
+        from routes.thingspeak import sync_thingspeak
+        sync_thingspeak()
+    except Exception:
+        pass
+
+    q = (
+        supabase.table("posiciones")
+        .select("latitud, longitud, capturado_en")
+        .eq("candado_id", id)
+        .order("capturado_en", desc=True)
+        .limit(1)
+    )
+    if desde:
+        q = q.gt("capturado_en", desde)
+    res = q.execute()
+    if res.data:
+        return {"fresca": True, **res.data[0]}
+    return {"fresca": False}
 
 
 @router.get("/comando/{codigo}")

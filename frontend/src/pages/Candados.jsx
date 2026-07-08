@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import api from '../api'
 import { ConfirmModal, MapaModal } from '../components/Modal'
@@ -82,27 +82,40 @@ export default function Candados() {
     })
   }
 
-  async function abrirMapa(candado) {
-    setMapa({ ...candado, cargando: true })
-    try {
-      // Solicitar ubicación al candado
-      await api.post(`/candados/${candado.id}/solicitar-ubicacion`)
+  const solicitudRef = useRef(0)
 
-      // Esperar respuesta: polling cada 5s, hasta 70s total (14 intentos)
-      for (let i = 0; i < 14; i++) {
+  async function abrirMapa(candado) {
+    const miSolicitud = ++solicitudRef.current
+    // Mientras se espera la respuesta NO se muestran coordenadas viejas
+    setMapa({ ...candado, latitud: null, longitud: null, cargando: true })
+    try {
+      // Pedir ubicación fresca al candado (publica LOC:<nonce> en el TalkBack)
+      const sol = await api.post(`/candados/${candado.id}/solicitar-ubicacion`)
+      const desde = sol.data.solicitado_en
+
+      // Esperar una posición capturada DESPUÉS de la solicitud.
+      // Peor caso: sync del ESP32 (60s) + fix GPS (60s) + post -> ~3 min
+      for (let i = 0; i < 34; i++) {
         await new Promise(r => setTimeout(r, 5000))
-        const res = await api.get('/candados/')
-        const act = res.data.find(c => c.id === candado.id)
-        if (act) {
-          setMapa(act)
-          if (act.en_linea) return  // Ya respondió, mostrar ubicación
+        if (solicitudRef.current !== miSolicitud) return   // modal cerrado
+        const res = await api.get(`/candados/${candado.id}/ubicacion-actual`, { params: { desde } })
+        if (res.data.fresca) {
+          setMapa({ ...candado, latitud: res.data.latitud, longitud: res.data.longitud, en_linea: true, cargando: false })
+          return
         }
       }
-      // Si llegó aquí, timeout: mostrar como desconectado
-      setMapa({ ...candado, en_linea: false, latitud: null, longitud: null })
-    } catch (e) {
-      setMapa({ ...candado, en_linea: false, latitud: null, longitud: null })
+      // Timeout: el candado no respondió — no mostrar coordenadas viejas
+      if (solicitudRef.current === miSolicitud)
+        setMapa({ ...candado, en_linea: false, latitud: null, longitud: null, cargando: false })
+    } catch {
+      if (solicitudRef.current === miSolicitud)
+        setMapa({ ...candado, en_linea: false, latitud: null, longitud: null, cargando: false })
     }
+  }
+
+  function cerrarMapa() {
+    solicitudRef.current++   // cancela el polling en curso
+    setMapa(null)
   }
 
   const conectados = candados.filter(c => c.en_linea).length
@@ -180,7 +193,7 @@ export default function Candados() {
                   <p className="t-mut text-xs mt-1">Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}</p>
                   {c.latitud != null && c.longitud != null && (
                     <button onClick={() => abrirMapa(c)} className="text-xs mt-1 inline-flex items-center gap-1" style={{ color: 'var(--accent)' }}>
-                      📍 {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)} — ver en mapa
+                      📍 Última conocida: {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)} — pedir actual
                     </button>
                   )}
                 </div>
@@ -259,9 +272,10 @@ export default function Candados() {
         )}
       </section>
 
-      <MapaModal open={!!mapa} onClose={() => setMapa(null)}
+      <MapaModal open={!!mapa} onClose={cerrarMapa}
         titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`}
-        lat={mapa?.latitud} lon={mapa?.longitud} en_linea={mapa?.en_linea} />
+        lat={mapa?.latitud} lon={mapa?.longitud} en_linea={mapa?.en_linea}
+        cargando={mapa?.cargando} />
       <ConfirmModal open={!!confirmar} title={confirmar?.title} mensaje={confirmar?.mensaje}
         confirmText={confirmar?.confirmText} danger={confirmar?.danger}
         onConfirm={confirmar?.onConfirm || (() => {})} onClose={() => setConfirmar(null)} />

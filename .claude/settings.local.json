@@ -18,7 +18,11 @@
       "PowerShell($url = \"https://api.thingspeak.com/talkbacks/57245/commands.json?api_key=M2015WR5B484N7IG\"; \\(Invoke-WebRequest -Uri $url -UseBasicParsing\\).Content | ConvertFrom-Json | ConvertTo-Json)",
       "PowerShell($url = \"https://api.thingspeak.com/channels/3407489/feeds.json?api_key=NB2O3UZFC04YAOIH&results=15\"; $response = Invoke-WebRequest -Uri $url -UseBasicParsing; $json = $response.Content | ConvertFrom-Json; $json.feeds | Select-Object created_at, field4 -Last 10 | Format-Table -AutoSize)",
       "Bash(git commit -m 'debug\\(sincronizarTokens\\): agregar logging detallado para debuggear parsing de TalkBack *)",
-      "Bash(git commit -m 'fix\\(esp32\\): revertir offset que rompía inicialización SIM808 *)"
+      "Bash(git commit -m 'fix\\(esp32\\): revertir offset que rompía inicialización SIM808 *)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} en %{time_total}s\\\\n\" https://tesiscandado.onrender.com/)",
+      "Bash(curl -s https://tesiscandado.onrender.com/)",
+      "Bash(python -m py_compile routes/candados.py tokens_sync.py)",
+      "Bash(git commit -m 'fix: localización on-demand completa + solenoide + pausa de alertas reed *)"
     ]
   }
 }
