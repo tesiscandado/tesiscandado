@@ -518,21 +518,24 @@ void sincronizarTokens() {
     int c1 = act.indexOf(',', ia), c2 = act.indexOf(',', c1 + 1);
     if (c1 >= 0 && c2 >= 0) code = act.substring(c1 + 1, c2).toInt();
   }
-  if (code != 200) return;   // si fallo, se conserva la lista anterior
+  if (code != 200) { Serial.printf("HTTP error: %d\n", code); return; }
 
   // Extraer el CSV de  "command_string":"LCBN8CC,AB12CD3,GPS:0"
+  Serial.printf("Respuesta recibida (%d bytes):\n", resp.length());
   int k = resp.indexOf("\"command_string\":\"");
-  if (k < 0) {                      // cola vacia -> sin tokens autorizados
+  if (k < 0) {
     nTokensValidos = 0;
-    Serial.println("Tokens: lista vacia");
+    Serial.println("ERROR: no encontrado \"command_string\"");
+    Serial.printf("Respuesta: %s\n", resp.c_str());
     return;
   }
-  k += 18;                          // longitud de  "command_string":"
+  k += 19;                          // longitud de  "command_string":"
   int fin = resp.indexOf('"', k);
-  if (fin < 0) return;
+  if (fin < 0) { Serial.println("ERROR: cierre de comillas no encontrado"); return; }
   String cuerpo = resp.substring(k, fin);
   cuerpo.trim();
-  if (cuerpo.length() == 0) { nTokensValidos = 0; return; }
+  Serial.printf("CSV extraido: [%s]\n", cuerpo.c_str());
+  if (cuerpo.length() == 0) { nTokensValidos = 0; Serial.println("CSV vacio"); return; }
 
   // Separar el CSV en la lista. Comandos especiales:
   // "GPS:x"     -> orden de encender (1) o apagar (0) GPS para ruta

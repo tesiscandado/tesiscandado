@@ -12,7 +12,12 @@
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\Cristhofer\\\\Downloads\\\\tesiscandado-remote\" -Force -Recurse | where-object {-not $_.PSIsContainer} | Select-Object FullName | Measure-Object | Select-Object Count)",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\Cristhofer\\\\Downloads\\\\tesiscandado-main\" -Force -Recurse | where-object {-not $_.PSIsContainer} | Select-Object FullName | Measure-Object | Select-Object Count)",
       "Bash(git add *)",
-      "Bash(git commit -m 'feat\\(localizar\\): esperar respuesta activa del candado antes de mostrar ubicación *)"
+      "Bash(git commit -m 'feat\\(localizar\\): esperar respuesta activa del candado antes de mostrar ubicación *)",
+      "Bash(git push *)",
+      "PowerShell($url = \"https://api.thingspeak.com/talkbacks/57245/commands.json?api_key=M2015WR5B484N7IG\"; $response = Invoke-WebRequest -Uri $url -UseBasicParsing; $json = $response.Content | ConvertFrom-Json; $json.commands | Select-Object -First 3 | ConvertTo-Json)",
+      "PowerShell($url = \"https://api.thingspeak.com/talkbacks/57245/commands.json?api_key=M2015WR5B484N7IG\"; \\(Invoke-WebRequest -Uri $url -UseBasicParsing\\).Content | ConvertFrom-Json | ConvertTo-Json)",
+      "PowerShell($url = \"https://api.thingspeak.com/channels/3407489/feeds.json?api_key=NB2O3UZFC04YAOIH&results=15\"; $response = Invoke-WebRequest -Uri $url -UseBasicParsing; $json = $response.Content | ConvertFrom-Json; $json.feeds | Select-Object created_at, field4 -Last 10 | Format-Table -AutoSize)",
+      "Bash(git commit -m 'debug\\(sincronizarTokens\\): agregar logging detallado para debuggear parsing de TalkBack *)"
     ]
   }
 }
