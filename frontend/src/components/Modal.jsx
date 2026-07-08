@@ -45,7 +45,7 @@ export function ConfirmModal({ open, title = 'Confirmar', mensaje, onConfirm, on
 }
 
 // Modal con mapa (OpenStreetMap, sin API key) y marcador en las coordenadas
-export function MapaModal({ open, onClose, titulo, lat, lon }) {
+export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true }) {
   const tiene = lat != null && lon != null
   const delta = 0.005
   const bbox = tiene
@@ -57,7 +57,7 @@ export function MapaModal({ open, onClose, titulo, lat, lon }) {
 
   return (
     <Modal open={open} onClose={onClose} title={titulo} maxWidth="max-w-2xl">
-      {tiene ? (
+      {tiene && en_linea ? (
         <div className="flex flex-col gap-3">
           <div className="rounded-xl overflow-hidden border bd">
             <iframe
@@ -81,6 +81,14 @@ export function MapaModal({ open, onClose, titulo, lat, lon }) {
               Abrir en Google Maps ↗
             </a>
           </div>
+        </div>
+      ) : !en_linea ? (
+        <div className="text-center py-10">
+          <p className="text-4xl mb-3">🔴</p>
+          <p className="t-pri font-medium">Candado desconectado</p>
+          <p className="t-mut text-sm mt-1">
+            No se pudo obtener la ubicación. El dispositivo no está respondiendo.
+          </p>
         </div>
       ) : (
         <div className="text-center py-10">

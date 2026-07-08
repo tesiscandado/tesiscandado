@@ -1,10 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(venv/Scripts/python -c \"import bcrypt; h1=bcrypt.hashpw\\(b'admin',bcrypt.gensalt\\(\\)\\).decode\\(\\); h2=bcrypt.hashpw\\(b'operador',bcrypt.gensalt\\(\\)\\).decode\\(\\); print\\('ADMIN:',h1\\); print\\('OPERADOR:',h2\\)\")",
-      "Bash(npm install *)",
-      "Bash(npx expo *)",
-      "Bash(venv\\\\Scripts\\\\python.exe -c \"import bcrypt; print\\(bcrypt.hashpw\\(b'Kevin123', bcrypt.gensalt\\(\\)\\).decode\\(\\)\\)\")"
+      "PowerShell(git config --global --list)",
+      "PowerShell(git -C \"C:\\\\Users\\\\Cristhofer\\\\Downloads\\\\tesiscandado-main\" status)",
+      "PowerShell(git config --global user.name \"tesiscandado\")",
+      "PowerShell(git config --global user.email \"vargaskevin1999.kv@gmail.com\")",
+      "PowerShell(git ls-remote https://github.com/tesiscandado/tesiscandado.git)",
+      "PowerShell(git clone https://github.com/tesiscandado/tesiscandado.git \"C:\\\\Users\\\\Cristhofer\\\\Downloads\\\\tesiscandado-remote\" 2>&1)",
+      "PowerShell(head -20)",
+      "PowerShell(git clone https://github.com/tesiscandado/tesiscandado.git \"C:\\\\Users\\\\Cristhofer\\\\Downloads\\\\tesiscandado-remote\")",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\Cristhofer\\\\Downloads\\\\tesiscandado-remote\" -Force -Recurse | where-object {-not $_.PSIsContainer} | Select-Object FullName | Measure-Object | Select-Object Count)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\Cristhofer\\\\Downloads\\\\tesiscandado-main\" -Force -Recurse | where-object {-not $_.PSIsContainer} | Select-Object FullName | Measure-Object | Select-Object Count)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat\\(localizar\\): esperar respuesta activa del candado antes de mostrar ubicación *)"
     ]
   }
 }

@@ -85,13 +85,23 @@ export default function Candados() {
   async function abrirMapa(candado) {
     setMapa({ ...candado, cargando: true })
     try {
+      // Solicitar ubicación al candado
       await api.post(`/candados/${candado.id}/solicitar-ubicacion`)
-      await new Promise(r => setTimeout(r, 1000))
-      const res = await api.get('/candados/')
-      const actualizado = res.data.find(c => c.id === candado.id)
-      if (actualizado) setMapa(actualizado)
+
+      // Esperar respuesta: polling cada 5s, hasta 70s total (14 intentos)
+      for (let i = 0; i < 14; i++) {
+        await new Promise(r => setTimeout(r, 5000))
+        const res = await api.get('/candados/')
+        const act = res.data.find(c => c.id === candado.id)
+        if (act) {
+          setMapa(act)
+          if (act.en_linea) return  // Ya respondió, mostrar ubicación
+        }
+      }
+      // Si llegó aquí, timeout: mostrar como desconectado
+      setMapa({ ...candado, en_linea: false, latitud: null, longitud: null })
     } catch (e) {
-      setMapa(candado)
+      setMapa({ ...candado, en_linea: false, latitud: null, longitud: null })
     }
   }
 
@@ -250,7 +260,8 @@ export default function Candados() {
       </section>
 
       <MapaModal open={!!mapa} onClose={() => setMapa(null)}
-        titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`} lat={mapa?.latitud} lon={mapa?.longitud} />
+        titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`}
+        lat={mapa?.latitud} lon={mapa?.longitud} en_linea={mapa?.en_linea} />
       <ConfirmModal open={!!confirmar} title={confirmar?.title} mensaje={confirmar?.mensaje}
         confirmText={confirmar?.confirmText} danger={confirmar?.danger}
         onConfirm={confirmar?.onConfirm || (() => {})} onClose={() => setConfirmar(null)} />
