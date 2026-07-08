@@ -75,3 +75,14 @@ def publicar_tokens(candado_id):
         return csv
     except Exception:
         return None
+
+
+def publicar_comando_talkback(comando):
+    """Publica un comando único en el TalkBack (ej: 'LOCATION' para solicitar GPS on-demand).
+    Reemplaza cualquier comando anterior. El ESP32 lo lee en su próxima sincronización."""
+    try:
+        httpx.delete(f"{_BASE}.json", params={"api_key": TB_KEY}, timeout=10)
+        httpx.post(f"{_BASE}.json", data={"api_key": TB_KEY, "command_string": comando[:255]}, timeout=10)
+        return True
+    except Exception:
+        return False

@@ -450,6 +450,46 @@ void aplicarEstadoGPS(bool activar) {
 }
 
 // -------------------------
+// CAPTURA ON-DEMAND DE GPS (comando LOCATION del TalkBack)
+// Se enciende el GPS momentáneamente, captura 1 ubicación y reporta a ThingSpeak.
+// Luego apaga el GPS. Ahorra batería: GPS solo está activo durante esta función.
+// -------------------------
+void capturarUbicacionOnDemand() {
+  Serial.println("--- Captura ON-DEMAND de ubicacion (comando LOCATION) ---");
+
+  // Encender GPS
+  modem.enableGPS();
+  unsigned long t = millis();
+  float lat = 0, lon = 0;
+
+  // Esperar hasta 60s a que el GPS obtenga una fix (usualmente 10-20s en exterior)
+  while (millis() - t < 60000) {
+    float tmp_lat = 0, tmp_lon = 0;
+    if (modem.getGPS(&tmp_lat, &tmp_lon)) {
+      lat = tmp_lat; lon = tmp_lon;
+      if (lat != 0 && lon != 0) {
+        Serial.printf("GPS fix obtenido: %.6f, %.6f (tras %lums)\n", lat, lon, millis() - t);
+        break;
+      }
+    }
+    delay(2000);
+  }
+
+  // Actualizar variables globales y reportar a ThingSpeak
+  if (lat != 0 && lon != 0) {
+    ultLat = lat; ultLon = lon;
+    postThingSpeak(0, saludHW, "Ubicacion on-demand");   // evento 0, solo GPS
+    Serial.printf("Ubicacion reportada a ThingSpeak: %.6f, %.6f\n", lat, lon);
+  } else {
+    Serial.println("No se pudo obtener fix GPS en el tiempo limite");
+  }
+
+  // Apagar GPS para ahorrar batería
+  modem.disableGPS();
+  Serial.println("GPS apagado (ahorro de bateria)");
+}
+
+// -------------------------
 // SINCRONIZAR TOKENS (TalkBack de ThingSpeak, por HTTP)
 // Descarga la lista de tokens validos que publica el backend. Si falla,
 // CONSERVA la lista anterior (el candado sigue funcionando offline).
@@ -494,10 +534,12 @@ void sincronizarTokens() {
   cuerpo.trim();
   if (cuerpo.length() == 0) { nTokensValidos = 0; return; }
 
-  // Separar el CSV en la lista. El elemento "GPS:x" NO es un token:
-  // es la orden de la web para encender (1) o apagar (0) el GPS.
+  // Separar el CSV en la lista. Comandos especiales:
+  // "GPS:x"     -> orden de encender (1) o apagar (0) GPS para ruta
+  // "LOCATION"  -> solicitud puntual de ubicación (web -> "Localizar")
   int n = 0, ini = 0;
   bool gpsVisto = false, gpsValor = false;
+  bool locationVisto = false;
   while (ini <= (int)cuerpo.length() && n < MAX_TOKENS) {
     int coma = cuerpo.indexOf(',', ini);
     if (coma < 0) coma = cuerpo.length();
@@ -505,6 +547,8 @@ void sincronizarTokens() {
     if (tk.startsWith("GPS:")) {
       gpsVisto = true;
       gpsValor = (tk.substring(4).toInt() == 1);
+    } else if (tk.equals("LOCATION")) {
+      locationVisto = true;
     } else if (tk.length() > 0) {
       tokensValidos[n++] = tk;
     }
@@ -513,6 +557,7 @@ void sincronizarTokens() {
   nTokensValidos = n;
   Serial.printf("Tokens sincronizados: %d\n", nTokensValidos);
   if (gpsVisto) aplicarEstadoGPS(gpsValor);
+  if (locationVisto) capturarUbicacionOnDemand();   // GPS momentaneo para "Localizar"
 }
 
 // -------------------------

@@ -124,14 +124,22 @@ def recibir_telemetria(data: TelemetriaInput):
 # ── Solicitud de ubicación on-demand ─────────────────────────
 @router.post("/{id}/solicitar-ubicacion")
 def solicitar_ubicacion(id: int):
-    """La página pide al dispositivo que reporte su ubicación actual.
-    Se marca un flag que el ESP32 consulta y al verlo envía sus coordenadas."""
-    res = supabase.table("candados").update(
-        {"solicitar_ubicacion": True}
-    ).eq("id", id).execute()
+    """La página pide ubicación actual (on-demand). Publica 'LOCATION' en TalkBack
+    para que el ESP32 (al consultarlo en max 60s) encienda GPS momentáneamente,
+    capture coordenadas y reporte. Ahorra batería: GPS solo se activa ese instante."""
+    from routes.thingspeak import publicar_comando_talkback
+
+    # Obtener candado para verificar existencia
+    res = supabase.table("candados").select("id").eq("id", id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Candado no encontrado")
-    return {"ok": True}
+
+    # Publicar comando LOCATION en TalkBack para que ESP32 lo vea
+    try:
+        publicar_comando_talkback("LOCATION")
+        return {"ok": True, "mensaje": "Comando LOCATION enviado. GPS se activará en máx. 60s"}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo publicar comando: {str(e)}")
 
 
 @router.get("/comando/{codigo}")
