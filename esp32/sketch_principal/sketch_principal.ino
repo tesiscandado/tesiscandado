@@ -78,7 +78,7 @@
 // -------------------------
 // CONFIG GPRS / THINGSPEAK
 // -------------------------
-const char APN[]       = "internet.tuenti.ec";  // Tuenti Ecuador
+const char APN[]       = "";  // Tuenti Ecuador
 const char GPRS_USER[] = "";
 const char GPRS_PASS[] = "";
 const char TS_HOST[]   = "api.thingspeak.com";

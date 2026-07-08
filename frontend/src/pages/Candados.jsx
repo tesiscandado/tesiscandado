@@ -82,6 +82,19 @@ export default function Candados() {
     })
   }
 
+  async function abrirMapa(candado) {
+    setMapa({ ...candado, cargando: true })
+    try {
+      await api.post(`/candados/${candado.id}/solicitar-ubicacion`)
+      await new Promise(r => setTimeout(r, 1000))
+      const res = await api.get('/candados/')
+      const actualizado = res.data.find(c => c.id === candado.id)
+      if (actualizado) setMapa(actualizado)
+    } catch (e) {
+      setMapa(candado)
+    }
+  }
+
   const conectados = candados.filter(c => c.en_linea).length
   const conBateria = candados.filter(c => c.nivel_bateria != null)
   const batProm = conBateria.length ? Math.round(conBateria.reduce((s, c) => s + c.nivel_bateria, 0) / conBateria.length) : null
@@ -156,7 +169,7 @@ export default function Candados() {
                   <p className="t-mut text-xs mt-0.5">{c.codigo_dispositivo}{c.sim_numero ? ` · SIM: ${c.sim_numero}` : ''}</p>
                   <p className="t-mut text-xs mt-1">Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}</p>
                   {c.latitud != null && c.longitud != null && (
-                    <button onClick={() => setMapa(c)} className="text-xs mt-1 inline-flex items-center gap-1" style={{ color: 'var(--accent)' }}>
+                    <button onClick={() => abrirMapa(c)} className="text-xs mt-1 inline-flex items-center gap-1" style={{ color: 'var(--accent)' }}>
                       📍 {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)} — ver en mapa
                     </button>
                   )}
@@ -175,7 +188,7 @@ export default function Candados() {
 
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={() => { setEditId(c.id); setForm({ codigo_dispositivo: c.codigo_dispositivo, descripcion: c.descripcion ?? '', sim_numero: c.sim_numero ?? '' }); setMsg(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }} className={`${btnCls} surface-soft border bd t-pri text-xs`}>Editar</button>
-                  <button onClick={() => setMapa(c)} className={`${btnCls} text-xs`} style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>📍 Localizar</button>
+                  <button onClick={() => abrirMapa(c)} className={`${btnCls} text-xs`} style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>📍 Localizar</button>
                   <button onClick={() => verAlertas(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.12)', color: '#f87171' }}>{expandido === c.id ? 'Ocultar alertas ▲' : '🔔 Alertas ▼'}</button>
                   <button onClick={() => eliminar(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>Eliminar</button>
                 </div>
