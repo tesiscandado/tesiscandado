@@ -529,7 +529,7 @@ void sincronizarTokens() {
     Serial.printf("Respuesta: %s\n", resp.c_str());
     return;
   }
-  k += 19;                          // longitud de  "command_string":"
+  k += 18;                          // longitud de  "command_string":"
   int fin = resp.indexOf('"', k);
   if (fin < 0) { Serial.println("ERROR: cierre de comillas no encontrado"); return; }
   String cuerpo = resp.substring(k, fin);
