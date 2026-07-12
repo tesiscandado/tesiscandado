@@ -15,6 +15,8 @@
   GPS BAJO DEMANDA (ahorro de bateria): el GPS arranca APAGADO. Cuando el
   admin pone "Iniciar ruta" en la pagina web, el backend publica GPS:1 en el
   TalkBack y el candado lo enciende (max 3 min); "Detener ruta" -> GPS:0.
+  El boton "Localizar" publica LOC:<nonce>: el candado enciende el GPS un
+  momento, reporta 1 posicion y lo vuelve a apagar.
 
   Libreria: TinyGSM (Library Manager).
   NOTA: la validacion del token RFID es LOCAL (offline): la lista de tokens
@@ -58,8 +60,9 @@
     Trigger -> GPIO13     GND_T -> GND del ESP32  (referencia del disparo!)
     6~30V   -> +12V (boost)   GND -> GND
     COM -> +12V    NO -> Solenoide(+)    Solenoide(-) -> GND
-    APERTURA: el ESP32 mantiene el trigger activo 15s. Configurar el XY-J02
-    para que el relay siga al trigger, o su temporizador en 15s.
+    APERTURA: el modulo esta en modo BIESTABLE (self-lock): cada pulso del
+    trigger CAMBIA el estado del rele. El ESP32 manda 1er pulso (abre),
+    espera TIEMPO_ABIERTO_MS y manda 2do pulso (cierra).
     Diodo flyback 1N4007 en el solenoide.
 
   --- ALIMENTACION ---
@@ -97,19 +100,17 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define RELAY_PIN 13      // XY-J02: pin IN (controla el solenoide)
 #define TOUCH_PIN 33      // TTP223B: pin OUT (HIGH al tocar)
 
-// Trigger del relay. Con true el solenoide quedaba energizado TODO el
-// tiempo (abierto permanente): el XY-J02 de este hardware dispara en BAJO,
-// igual que en la version que funcionaba en pruebas. Si cambian el modulo
-// y dispara al reves, poner true.
-#define RELAY_ACTIVO_ALTO false
+// Trigger del relay ACTIVO EN ALTO (confirmado en pruebas: con la logica
+// invertida el solenoide quedaba activado desde el arranque).
+// Si algun dia cambian el modulo y dispara al reves, poner false.
+#define RELAY_ACTIVO_ALTO true
 #define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
 #define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
-// Apertura: el XY-J02 de este modulo funciona en modo BIESTABLE (self-lock):
-// un pulso de disparo CAMBIA el estado del rele y se queda asi hasta el
-// PROXIMO pulso (no tiene temporizador propio corriendo). Por eso el ESP32
-// controla el tiempo por software: 1er pulso = abre, espera TIEMPO_ABIERTO_MS,
-// 2do pulso = cierra.
+// Apertura: el XY-J02 esta en modo BIESTABLE (self-lock): un pulso de
+// disparo CAMBIA el estado del rele y se queda asi hasta el PROXIMO pulso
+// (no tiene temporizador propio corriendo). El ESP32 controla el tiempo:
+// 1er pulso = abre, espera TIEMPO_ABIERTO_MS, 2do pulso = cierra.
 const unsigned long PULSO_TRIGGER_MS  = 300;    // duracion de cada pulso de disparo
 const unsigned long TIEMPO_ABIERTO_MS = 10000;  // cuanto queda abierto el solenoide
 
@@ -468,12 +469,12 @@ void aplicarEstadoGPS(bool activar) {
 }
 
 // -------------------------
-// CAPTURA ON-DEMAND DE GPS (comando LOCATION del TalkBack)
-// Se enciende el GPS momentáneamente, captura 1 ubicación y reporta a ThingSpeak.
-// Luego apaga el GPS. Ahorra batería: GPS solo está activo durante esta función.
+// CAPTURA ON-DEMAND DE GPS (comando LOC:<nonce> del TalkBack)
+// Se enciende el GPS momentaneamente, captura 1 ubicacion y reporta a
+// ThingSpeak. Luego apaga el GPS (salvo que haya una ruta activa usandolo).
 // -------------------------
 void capturarUbicacionOnDemand() {
-  Serial.println("--- Captura ON-DEMAND de ubicacion (comando LOCATION) ---");
+  Serial.println("--- Captura ON-DEMAND de ubicacion (comando LOC) ---");
 
   // Encender GPS
   modem.enableGPS();
@@ -504,16 +505,18 @@ void capturarUbicacionOnDemand() {
     Serial.println("No se pudo obtener fix GPS en el tiempo limite");
   }
 
-  // Apagar GPS para ahorrar batería
-  modem.disableGPS();
-  Serial.println("GPS apagado (ahorro de bateria)");
+  // Apagar GPS para ahorrar bateria (solo si NO hay una ruta activa usandolo)
+  if (!gpsActivo) {
+    modem.disableGPS();
+    Serial.println("GPS apagado (ahorro de bateria)");
+  }
 }
 
 // -------------------------
 // SINCRONIZAR TOKENS (TalkBack de ThingSpeak, por HTTP)
 // Descarga la lista de tokens validos que publica el backend. Si falla,
 // CONSERVA la lista anterior (el candado sigue funcionando offline).
-// El ultimo elemento puede ser GPS:1/GPS:0 (control del GPS desde la web).
+// Al final pueden venir comandos: GPS:1/GPS:0 (ruta) y LOC:<nonce> (localizar).
 // -------------------------
 void sincronizarTokens() {
   if (!modem.isGprsConnected()) return;
@@ -541,12 +544,10 @@ void sincronizarTokens() {
   if (code != 200) { Serial.printf("HTTP error: %d\n", code); return; }
 
   // Extraer el CSV de  "command_string":"LCBN8CC,AB12CD3,GPS:0"
-  Serial.printf("Respuesta recibida (%d bytes):\n", resp.length());
   int k = resp.indexOf("\"command_string\":\"");
   if (k < 0) {
     nTokensValidos = 0;
-    Serial.println("ERROR: no encontrado \"command_string\"");
-    Serial.printf("Respuesta: %s\n", resp.c_str());
+    Serial.println("Tokens: lista vacia (sin command_string)");
     return;
   }
   k += 18;                          // longitud de  "command_string":"
@@ -609,7 +610,7 @@ void setup() {
   for (byte i=0;i<6;i++) keyFactory.keyByte[i]=0xFF;
 
   pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, BUZZER_OFF);   // buzzer apagado al iniciar (activo en LOW)
+  digitalWrite(BUZZER_PIN, BUZZER_OFF);   // buzzer apagado al iniciar
   delay(500);
 
   // ADXL345

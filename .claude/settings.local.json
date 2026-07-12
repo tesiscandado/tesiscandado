@@ -24,7 +24,10 @@
       "Bash(python -m py_compile routes/candados.py tokens_sync.py)",
       "Bash(git commit -m 'fix: localización on-demand completa + solenoide + pausa de alertas reed *)",
       "PowerShell($tb = \\(Invoke-WebRequest -Uri \"https://api.thingspeak.com/talkbacks/57245/commands.json?api_key=M2015WR5B484N7IG\" -UseBasicParsing\\).Content; \"TALKBACK: $tb\")",
-      "Bash(git commit -m 'fix\\(esp32\\): solenoide biestable - dos pulsos \\(abrir/cerrar\\) controlados por software *)"
+      "Bash(git commit -m 'fix\\(esp32\\): solenoide biestable - dos pulsos \\(abrir/cerrar\\) controlados por software *)",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Bash(git commit -m 'refactor\\(esp32\\): rebasar firmware sobre la version estable del usuario *)"
     ]
   }
 }
