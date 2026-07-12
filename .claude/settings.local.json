@@ -22,7 +22,9 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} en %{time_total}s\\\\n\" https://tesiscandado.onrender.com/)",
       "Bash(curl -s https://tesiscandado.onrender.com/)",
       "Bash(python -m py_compile routes/candados.py tokens_sync.py)",
-      "Bash(git commit -m 'fix: localización on-demand completa + solenoide + pausa de alertas reed *)"
+      "Bash(git commit -m 'fix: localización on-demand completa + solenoide + pausa de alertas reed *)",
+      "PowerShell($tb = \\(Invoke-WebRequest -Uri \"https://api.thingspeak.com/talkbacks/57245/commands.json?api_key=M2015WR5B484N7IG\" -UseBasicParsing\\).Content; \"TALKBACK: $tb\")",
+      "Bash(git commit -m 'fix\\(esp32\\): solenoide biestable - dos pulsos \\(abrir/cerrar\\) controlados por software *)"
     ]
   }
 }

@@ -105,11 +105,13 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
 #define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
-// Apertura: el ESP32 manda un PULSO corto en el Trigger y el XY-J02 (modo
-// temporizador) mantiene el solenoide abierto el tiempo configurado EN EL
-// MODULO. La ventana solo espera la confirmacion del reed.
-const unsigned long PULSO_TRIGGER_MS   = 300;    // duracion del pulso de disparo
-const unsigned long VENTANA_CONFIRM_MS = 3000;   // tiempo de apertura del XY-J02
+// Apertura: el XY-J02 de este modulo funciona en modo BIESTABLE (self-lock):
+// un pulso de disparo CAMBIA el estado del rele y se queda asi hasta el
+// PROXIMO pulso (no tiene temporizador propio corriendo). Por eso el ESP32
+// controla el tiempo por software: 1er pulso = abre, espera TIEMPO_ABIERTO_MS,
+// 2do pulso = cierra.
+const unsigned long PULSO_TRIGGER_MS  = 300;    // duracion de cada pulso de disparo
+const unsigned long TIEMPO_ABIERTO_MS = 10000;  // cuanto queda abierto el solenoide
 
 // Pausar las alarmas del sensor reed (pruebas de mesa: sin puerta real el
 // reed dispara "Puerta abierta sin autorizacion" a cada rato y llena el
@@ -350,30 +352,35 @@ void beep(int ms) {
 }
 
 // -------------------------
-// SOLENOIDE (pulso corto; el XY-J02 temporiza la apertura)
+// SOLENOIDE (XY-J02 en modo biestable: 2 pulsos, abre y cierra)
 // -------------------------
 void abrirSolenoide() {
   solenoideAbierto = true;
   digitalWrite(BUZZER_PIN, BUZZER_OFF);   // silencio durante la apertura
-  Serial.println("Abriendo solenoide (pulso al XY-J02)...");
+  Serial.println("Abriendo solenoide (1er pulso: ON)...");
 
-  // Pulso de disparo: el XY-J02 mantiene el solenoide abierto su tiempo
-  // configurado y lo suelta solo (el ESP32 NO retiene el trigger).
+  // 1er pulso: abre (toggle del rele biestable)
   digitalWrite(RELAY_PIN, RELAY_ON);
   delay(PULSO_TRIGGER_MS);
   digitalWrite(RELAY_PIN, RELAY_OFF);
 
-  // Vigilar el reed durante la ventana del temporizador: debe confirmar apertura
+  // Ventana de apertura controlada por software: vigilar el reed para
+  // confirmar que abrio de verdad.
   unsigned long t = millis();
   bool confirmo = false;
-  while (millis() - t < VENTANA_CONFIRM_MS) {
+  while (millis() - t < TIEMPO_ABIERTO_MS) {
     if (!confirmo && digitalRead(REED_PIN) == HIGH) {
       confirmo = true;
       Serial.println("Apertura confirmada por el reed");
     }
     delay(50);
   }
-  Serial.println("Fin de la ventana de apertura");
+
+  // 2do pulso: cierra (vuelve a cambiar el estado del rele biestable)
+  Serial.println("Cerrando solenoide (2do pulso: OFF)...");
+  digitalWrite(RELAY_PIN, RELAY_ON);
+  delay(PULSO_TRIGGER_MS);
+  digitalWrite(RELAY_PIN, RELAY_OFF);
 
   if (!confirmo) {
     saludHW = 3; // fallo_solenoide: se disparo pero el reed no confirmo apertura
@@ -384,6 +391,7 @@ void abrirSolenoide() {
   // Sin esto, el loop la detectaba como "ALERTA REED" (falsa alarma).
   reedEstadoAnt = (digitalRead(REED_PIN) == LOW);
   solenoideAbierto = false;
+  Serial.println("Solenoide cerrado");
 }
 
 // -------------------------
