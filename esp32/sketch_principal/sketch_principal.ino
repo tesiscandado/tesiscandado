@@ -107,12 +107,13 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 #define RELAY_ON  (RELAY_ACTIVO_ALTO ? HIGH : LOW)
 #define RELAY_OFF (RELAY_ACTIVO_ALTO ? LOW  : HIGH)
 
-// Apertura: el XY-J02 esta en modo BIESTABLE (self-lock): un pulso de
-// disparo CAMBIA el estado del rele y se queda asi hasta el PROXIMO pulso
-// (no tiene temporizador propio corriendo). El ESP32 controla el tiempo:
-// 1er pulso = abre, espera TIEMPO_ABIERTO_MS, 2do pulso = cierra.
-const unsigned long PULSO_TRIGGER_MS  = 300;    // duracion de cada pulso de disparo
-const unsigned long TIEMPO_ABIERTO_MS = 10000;  // cuanto queda abierto el solenoide
+// Apertura: el XY-J02 esta en modo P1.2 (Off-Delay): un solo pulso al trigger
+// activa el rele, y el modulo mantiene la apertura automaticamente 10s.
+// El ESP32 solo dispara UN pulso y verifica que el reed confirme la apertura.
+// Si falla, reintenta hasta 3 veces.
+const unsigned long PULSO_TRIGGER_MS  = 300;    // duracion del pulso de disparo
+const unsigned long TIEMPO_CONFIRMACION_MS = 12000;  // esperar a que cierre (10s + margen)
+const int MAX_REINTENTOS_APERTURA = 3;  // cuantos intentos antes de reportar fallo
 
 // Pausar las alarmas del sensor reed (pruebas de mesa: sin puerta real el
 // reed dispara "Puerta abierta sin autorizacion" a cada rato y llena el
@@ -209,6 +210,16 @@ int contadorEventos = 0;
 bool reedAlerta = false, mpuAlerta = false;
 unsigned long tiempoMpuAlerta = 0;
 const unsigned long TIMEOUT_MPU = 10000;
+
+// Throttling de alertas: maximo 1-2 reportes por tipo, luego esperar 30s
+const unsigned long DELAY_ENTRE_ALERTAS = 30000;  // 30 segundos
+const int MAX_REPORTES_ALERTA = 2;
+unsigned long ultimoReporteReed = 0;
+int contadorReportesReed = 0;
+unsigned long ultimoReporteImpacto = 0;
+int contadorReportesImpacto = 0;
+unsigned long ultimoReporteForcejeo = 0;
+int contadorReportesForcejeo = 0;
 
 unsigned long ultimaLectura = 0;
 const unsigned long COOLDOWN_RFID = 3000;
@@ -353,46 +364,50 @@ void beep(int ms) {
 }
 
 // -------------------------
-// SOLENOIDE (XY-J02 en modo biestable: 2 pulsos, abre y cierra)
+// SOLENOIDE (XY-J02 en modo P1.2 Off-Delay: 1 pulso, modulo cierra automaticamente)
 // -------------------------
 void abrirSolenoide() {
   solenoideAbierto = true;
   digitalWrite(BUZZER_PIN, BUZZER_OFF);   // silencio durante la apertura
-  Serial.println("Abriendo solenoide (1er pulso: ON)...");
 
-  // 1er pulso: abre (toggle del rele biestable)
-  digitalWrite(RELAY_PIN, RELAY_ON);
-  delay(PULSO_TRIGGER_MS);
-  digitalWrite(RELAY_PIN, RELAY_OFF);
+  bool apertura_exitosa = false;
+  for (int intento = 1; intento <= MAX_REINTENTOS_APERTURA; intento++) {
+    Serial.printf("Abriendo solenoide (intento %d/%d)...\n", intento, MAX_REINTENTOS_APERTURA);
 
-  // Ventana de apertura controlada por software: vigilar el reed para
-  // confirmar que abrio de verdad.
-  unsigned long t = millis();
-  bool confirmo = false;
-  while (millis() - t < TIEMPO_ABIERTO_MS) {
-    if (!confirmo && digitalRead(REED_PIN) == HIGH) {
-      confirmo = true;
-      Serial.println("Apertura confirmada por el reed");
+    // UN solo pulso: el XY-J02 en P1.2 mantiene la apertura 10s automaticamente
+    digitalWrite(RELAY_PIN, RELAY_ON);
+    delay(PULSO_TRIGGER_MS);
+    digitalWrite(RELAY_PIN, RELAY_OFF);
+
+    // Vigilar el reed: debe abrir dentro de 2 segundos
+    unsigned long t = millis();
+    bool confirmo = false;
+    while (millis() - t < 2000) {
+      if (digitalRead(REED_PIN) == HIGH) {
+        confirmo = true;
+        Serial.println("Apertura confirmada por el reed");
+        apertura_exitosa = true;
+        break;
+      }
+      delay(50);
     }
-    delay(50);
+
+    if (apertura_exitosa) break;   // exito: salir del loop de reintentos
+    if (intento < MAX_REINTENTOS_APERTURA) {
+      Serial.printf("Intento %d fallo, reintentando en 1s...\n", intento);
+      delay(1000);
+    }
   }
 
-  // 2do pulso: cierra (vuelve a cambiar el estado del rele biestable)
-  Serial.println("Cerrando solenoide (2do pulso: OFF)...");
-  digitalWrite(RELAY_PIN, RELAY_ON);
-  delay(PULSO_TRIGGER_MS);
-  digitalWrite(RELAY_PIN, RELAY_OFF);
-
-  if (!confirmo) {
-    saludHW = 3; // fallo_solenoide: se disparo pero el reed no confirmo apertura
-    Serial.println("FALLO SOLENOIDE: no confirmo apertura");
-    reportar(0, 3, "Solenoide no confirmo apertura");
+  if (!apertura_exitosa) {
+    saludHW = 3; // fallo_solenoide
+    Serial.println("FALLO SOLENOIDE: no confirmo apertura en 3 intentos");
+    reportar(0, 3, "Solenoide fallo en 3 intentos");
   }
+
   // Resincronizar el reed: la puerta quedo abierta por un acceso AUTORIZADO.
-  // Sin esto, el loop la detectaba como "ALERTA REED" (falsa alarma).
   reedEstadoAnt = (digitalRead(REED_PIN) == LOW);
   solenoideAbierto = false;
-  Serial.println("Solenoide cerrado");
 }
 
 // -------------------------
@@ -676,9 +691,9 @@ void setup() {
 // -------------------------
 void loop() {
 
-  // ===== DIAGNOSTICO cada 2s: touch, GPRS, GPS y reed =====
+  // ===== DIAGNOSTICO cada 5s: touch, GPRS, GPS y reed =====
   static unsigned long ultLog = 0;
-  if (millis() - ultLog > 2000) {
+  if (millis() - ultLog > 5000) {
     ultLog = millis();
     Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Reed=%s\n",
       digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO",
@@ -735,39 +750,68 @@ void loop() {
     }
   }
 
-  // ===== REED =====
+  // ===== REED (con throttling de alertas) =====
   bool reedDetecta = (digitalRead(REED_PIN) == LOW);
   if (reedEstadoAnt != reedDetecta) {
     if (!reedDetecta && !solenoideAbierto) {
       if (ALERTAS_REED_ACTIVAS) {
         reedAlerta = true;
-        Serial.println("ALERTA REED");
-        reportar(10, saludHW, "Puerta abierta sin autorizacion");
+        unsigned long ahora = millis();
+        // Reportar si: es la primera alerta, O han pasado 30s desde la ultima, O aun no hemos alcanzado el maximo
+        if (contadorReportesReed < MAX_REPORTES_ALERTA && (ahora - ultimoReporteReed) >= DELAY_ENTRE_ALERTAS) {
+          contadorReportesReed++;
+          ultimoReporteReed = ahora;
+          Serial.printf("ALERTA REED (reporte %d/%d)\n", contadorReportesReed, MAX_REPORTES_ALERTA);
+          reportar(10, saludHW, "Puerta abierta sin autorizacion");
+        } else if (contadorReportesReed == 0) {
+          // Primera deteccion: reportar inmediatamente
+          contadorReportesReed++;
+          ultimoReporteReed = ahora;
+          Serial.println("ALERTA REED (reporte 1/2)");
+          reportar(10, saludHW, "Puerta abierta sin autorizacion");
+        } else {
+          Serial.printf("Reed abierto (reporte %d/%d, esperando %ld ms)\n",
+            contadorReportesReed, MAX_REPORTES_ALERTA, DELAY_ENTRE_ALERTAS - (ahora - ultimoReporteReed));
+        }
       } else {
         Serial.println("Reed abierto (alertas de reed PAUSADAS)");
       }
     } else if (reedDetecta && reedAlerta) {
-      // solo reportar "resuelta" si de verdad habia una alarma activa
+      // Solo reportar "resuelta" si de verdad habia una alarma activa
       reedAlerta = false;
+      contadorReportesReed = 0;  // resetear contador de alertas
+      ultimoReporteReed = 0;
       if (!mpuAlerta) reportar(14, saludHW, "Alarma resuelta");
+      Serial.println("Alarma REED resuelta");
     }
     reedEstadoAnt = reedDetecta;
   }
 
-  // ===== ADXL345 (acelerometro) =====
-  // Se omite si fallo al arrancar o si la lectura I2C falla (datos basura
-  // podian disparar falsas alarmas de impacto).
+  // ===== ADXL345 (acelerometro, con throttling) =====
+  // Se omite si fallo al arrancar o si la lectura I2C falla.
   if (!falloMPU) {
     int16_t ax, ay, az;
     if (adxlGetAcceleration(&ax, &ay, &az)) {
       long inten = abs(ax-axAnt)+abs(ay-ayAnt)+abs(az-azAnt);
+      unsigned long ahora = millis();
       if (inten > UMBRAL_IMPACTO) {
-        contadorEventos += 3; mpuAlerta = true; tiempoMpuAlerta = millis();
-        Serial.println("ALERTA IMPACTO");
-        reportar(12, saludHW, "Impacto detectado");
+        contadorEventos += 3; mpuAlerta = true; tiempoMpuAlerta = ahora;
+        // Reportar si no hemos alcanzado el maximo de reportes O han pasado 30s desde el ultimo
+        if (contadorReportesImpacto < MAX_REPORTES_ALERTA && (ahora - ultimoReporteImpacto) >= DELAY_ENTRE_ALERTAS) {
+          contadorReportesImpacto++;
+          ultimoReporteImpacto = ahora;
+          Serial.printf("ALERTA IMPACTO (reporte %d/%d)\n", contadorReportesImpacto, MAX_REPORTES_ALERTA);
+          reportar(12, saludHW, "Impacto detectado");
+        } else if (contadorReportesImpacto == 0) {
+          contadorReportesImpacto++;
+          ultimoReporteImpacto = ahora;
+          Serial.println("ALERTA IMPACTO (reporte 1/2)");
+          reportar(12, saludHW, "Impacto detectado");
+        }
       } else if (inten > UMBRAL_GOLPE) {
-        contadorEventos++; mpuAlerta = true; tiempoMpuAlerta = millis();
-        reportar(12, saludHW, "Golpe detectado");
+        contadorEventos++; mpuAlerta = true; tiempoMpuAlerta = ahora;
+        // Similar para golpes (pero no se reporta, solo se cuenta para forcejeo)
+        Serial.println("Golpe detectado (sin reporte individual)");
       }
       axAnt=ax; ayAnt=ay; azAnt=az;
     }
@@ -775,12 +819,27 @@ void loop() {
 
   if (mpuAlerta && (millis() - tiempoMpuAlerta >= TIMEOUT_MPU)) {
     mpuAlerta = false; contadorEventos = 0; inicioVentana = millis();
+    contadorReportesImpacto = 0;   // resetear contador de impactos
+    ultimoReporteImpacto = 0;
     if (!reedAlerta) reportar(14, saludHW, "Alarma resuelta");
+    Serial.println("Alarma MPU resuelta");
   }
   if (millis() - inicioVentana >= 5000) {
     if (contadorEventos >= 5) {
       mpuAlerta = true; tiempoMpuAlerta = millis();
-      reportar(13, saludHW, "Forcejeo detectado");
+      unsigned long ahora = millis();
+      // Reportar forcejeo con throttling
+      if (contadorReportesForcejeo < MAX_REPORTES_ALERTA && (ahora - ultimoReporteForcejeo) >= DELAY_ENTRE_ALERTAS) {
+        contadorReportesForcejeo++;
+        ultimoReporteForcejeo = ahora;
+        Serial.printf("ALERTA FORCEJEO (reporte %d/%d)\n", contadorReportesForcejeo, MAX_REPORTES_ALERTA);
+        reportar(13, saludHW, "Forcejeo detectado");
+      } else if (contadorReportesForcejeo == 0) {
+        contadorReportesForcejeo++;
+        ultimoReporteForcejeo = ahora;
+        Serial.println("ALERTA FORCEJEO (reporte 1/2)");
+        reportar(13, saludHW, "Forcejeo detectado");
+      }
     }
     contadorEventos = 0; inicioVentana = millis();
   }

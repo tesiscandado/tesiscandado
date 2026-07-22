@@ -27,7 +27,9 @@
       "Bash(git commit -m 'fix\\(esp32\\): solenoide biestable - dos pulsos \\(abrir/cerrar\\) controlados por software *)",
       "Bash(git show *)",
       "Read(//tmp/**)",
-      "Bash(git commit -m 'refactor\\(esp32\\): rebasar firmware sobre la version estable del usuario *)"
+      "Bash(git commit -m 'refactor\\(esp32\\): rebasar firmware sobre la version estable del usuario *)",
+      "WebSearch",
+      "Bash(git commit -m 'fix\\(esp32\\): solenoide 1 pulso + throttling de alertas + logs cada 5s *)"
     ]
   }
 }
