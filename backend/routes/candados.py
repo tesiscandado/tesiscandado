@@ -176,42 +176,6 @@ def ubicacion_actual(id: int, desde: str = None):
     return {"fresca": False}
 
 
-@router.post("/{id}/seed-ubicaciones")
-def seed_ubicaciones(id: int):
-    """TEMPORAL: limpia y siembra un set de ubicaciones de ejemplo (con leve
-    deriva de GPS para que se vean reales). Se elimina tras usarlo una vez."""
-    from datetime import datetime, timezone, timedelta
-    import random
-    random.seed(7)
-    coords = [
-        (-2.08908068191783,   -79.91393199502402, 4),
-        (-2.091554243582815,  -79.91319198416646, 3),
-        (-2.0878311492862887, -79.91434027687646, 4),
-        (-2.088213659381075,  -79.9129368080087,  3),
-        (-2.1399471150076748, -79.90943040163599, 2),
-    ]
-    supabase.table("posiciones").delete().eq("candado_id", id).execute()
-    ahora = datetime.now(timezone.utc)
-    offset_min = 180
-    PASO_MISMO = 5
-    PASO_GRUPO = 18 * 60
-    filas = []
-    for lat, lon, veces in coords:
-        for _ in range(veces):
-            cap = ahora - timedelta(minutes=offset_min)
-            # deriva ~ +/- 4.5 m para que las lecturas repetidas no sean identicas
-            jlat = lat + random.uniform(-0.00004, 0.00004)
-            jlon = lon + random.uniform(-0.00004, 0.00004)
-            filas.append({
-                "candado_id": id, "latitud": jlat, "longitud": jlon,
-                "capturado_en": cap.isoformat(),
-            })
-            offset_min += PASO_MISMO
-        offset_min += PASO_GRUPO
-    supabase.table("posiciones").insert(filas).execute()
-    return {"ok": True, "insertadas": len(filas)}
-
-
 @router.get("/{id}/ubicaciones")
 def ultimas_ubicaciones(id: int, limite: int = 20):
     """Últimas N posiciones GPS del candado (más recientes primero), para
