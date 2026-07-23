@@ -30,10 +30,10 @@ export default function Candados() {
 
   const POR_PAGINA = 5
 
-  // Carga inicial + refresco automatico cada 60s (ubicacion, bateria, en_linea)
+  // Carga inicial + refresco automatico cada 30s (ubicacion, bateria, en_linea)
   useEffect(() => {
     cargar()
-    const t = setInterval(cargar, 60000)
+    const t = setInterval(cargar, 30000)
     return () => clearInterval(t)
   }, [])
 
@@ -202,7 +202,6 @@ export default function Candados() {
                   {c.en_linea
                     ? <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: 'rgba(16,185,129,.15)', color: '#34d399' }}>🟢 En línea</span>
                     : <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>🔴 Desconectado</span>}
-                  <span className="text-xs px-2.5 py-1 rounded-full capitalize font-semibold" style={estadoStyle[c.estado] ?? { background: 'var(--accent-soft)', color: 'var(--muted)' }}>{c.estado}</span>
                   {c.nivel_bateria != null && (
                     <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={c.nivel_bateria < 20 ? { background: 'rgba(239,68,68,.15)', color: '#f87171' } : { background: 'var(--accent-soft)', color: 'var(--accent)' }}>🔋 {c.nivel_bateria}%</span>
                   )}
