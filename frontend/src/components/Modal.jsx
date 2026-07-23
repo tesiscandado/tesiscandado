@@ -148,7 +148,7 @@ export function HistorialModal({ open, onClose, titulo, puntos = [], cargando = 
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 max-h-[70vh] overflow-y-auto pr-1">
           {/* Mini-mapa del punto seleccionado */}
           {sel && (
             <div className="flex flex-col gap-1.5">
