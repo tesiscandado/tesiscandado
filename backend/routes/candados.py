@@ -176,6 +176,36 @@ def ubicacion_actual(id: int, desde: str = None):
     return {"fresca": False}
 
 
+@router.post("/{id}/seed-ubicaciones")
+def seed_ubicaciones(id: int):
+    """TEMPORAL: inserta un set fijo de ubicaciones de ejemplo en la BD para
+    poblar el historial. Se elimina despues de usarlo una vez."""
+    from datetime import datetime, timezone, timedelta
+    coords = [
+        (-2.08908068191783,   -79.91393199502402, 4),
+        (-2.091554243582815,  -79.91319198416646, 3),
+        (-2.0878311492862887, -79.91434027687646, 4),
+        (-2.088213659381075,  -79.9129368080087,  3),
+        (-2.1399471150076748, -79.90943040163599, 2),
+    ]
+    ahora = datetime.now(timezone.utc)
+    offset_min = 180        # el mas reciente ~3h atras
+    PASO_MISMO = 5          # lecturas del mismo punto a 5 min
+    PASO_GRUPO = 18 * 60    # 18h entre puntos distintos
+    filas = []
+    for lat, lon, veces in coords:
+        for _ in range(veces):
+            cap = ahora - timedelta(minutes=offset_min)
+            filas.append({
+                "candado_id": id, "latitud": lat, "longitud": lon,
+                "capturado_en": cap.isoformat(),
+            })
+            offset_min += PASO_MISMO
+        offset_min += PASO_GRUPO
+    supabase.table("posiciones").insert(filas).execute()
+    return {"ok": True, "insertadas": len(filas)}
+
+
 @router.get("/{id}/ubicaciones")
 def ultimas_ubicaciones(id: int, limite: int = 20):
     """Últimas N posiciones GPS del candado (más recientes primero), para
