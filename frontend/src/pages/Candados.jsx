@@ -98,12 +98,10 @@ export default function Candados() {
 
   const solicitudRef = useRef(0)
 
-  // Precargar demo: marca el candado como activo con la ubicacion fija y
-  // abre el mapa al instante. Solo afecta la vista (persistido en el navegador).
+  // Precargar demo: marca el candado como activo con la ubicacion fija.
+  // Solo afecta la vista (persistido en el navegador); NO abre el mapa.
   function precargarDemo(candado) {
     setPrecarga(prev => ({ ...prev, [candado.id]: { ...COORDS_DEMO, en_linea: true, estado: 'activo' } }))
-    solicitudRef.current++   // cancela cualquier polling en curso
-    setMapa({ ...candado, ...COORDS_DEMO, en_linea: true, cargando: false })
   }
 
   // Limpiar la precarga: vuelve a los datos reales del candado.
