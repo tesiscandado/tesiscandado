@@ -50,7 +50,7 @@ def _con_estado_conexion(candados):
         if uc:
             try:
                 # Soportar formatos ISO con Z o con +00:00
-                uc_str = str(uc).replace("Z", "+00:00")
+                uc_str = str(uc).replace("Z", "+00:00").split(".")[0] + "+00:00"  # eliminar microsegundos si los hay
                 dt = datetime.fromisoformat(uc_str)
                 # Asegurar que dt es aware (con timezone)
                 if dt.tzinfo is None:
@@ -58,7 +58,8 @@ def _con_estado_conexion(candados):
                 diferencia = ahora - dt
                 en_linea = diferencia < timedelta(minutes=_UMBRAL_DESCONECTADO_MIN)
             except (ValueError, AttributeError, TypeError) as e:
-                pass
+                # Si falla el parsing, asumir DESCONECTADO (not en_linea = False)
+                en_linea = False
         c["en_linea"] = en_linea
     return candados
 
