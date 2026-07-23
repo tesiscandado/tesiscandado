@@ -36,6 +36,9 @@ export default function Dashboard() {
   const [error, setError] = useState('')
   const [mapa, setMapa] = useState(null)
   const [limite, setLimite] = useState(7)
+  const [pagAlarmas, setPagAlarmas] = useState(0)   // pagina actual de alarmas
+
+  const ALARMAS_POR_PAGINA = 5   // alarmas por pagina
 
   async function cargar() {
     try {
@@ -153,26 +156,48 @@ export default function Dashboard() {
               <p className="t-mut text-sm">No hay alarmas activas en este momento.</p>
             </div>
           </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {data.alarmas_activas.map((a, i) => (
-              <motion.div key={a.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.06 }}
-                className="rounded-2xl p-4 flex justify-between items-center border"
-                style={{ background: 'rgba(239,68,68,.10)', borderColor: 'rgba(239,68,68,.4)' }}>
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">🚨</span>
-                  <div>
-                    <p className="font-semibold" style={{ color: '#f87171' }}>{a.eventos?.tipos_evento?.nombre}</p>
-                    <p className="t-mut text-xs">{a.eventos?.candados?.descripcion} — {new Date(a.eventos?.ocurrido_en).toLocaleString()}</p>
-                  </div>
+        ) : (() => {
+          const totalPag = Math.ceil(data.alarmas_activas.length / ALARMAS_POR_PAGINA)
+          const pag = Math.min(pagAlarmas, totalPag - 1)
+          const vis = data.alarmas_activas.slice(pag * ALARMAS_POR_PAGINA, pag * ALARMAS_POR_PAGINA + ALARMAS_POR_PAGINA)
+          return (
+            <>
+              <div className="flex flex-col gap-3">
+                {vis.map((a, i) => (
+                  <motion.div key={a.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.06 }}
+                    className="rounded-2xl p-4 flex justify-between items-center border"
+                    style={{ background: 'rgba(239,68,68,.10)', borderColor: 'rgba(239,68,68,.4)' }}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl">🚨</span>
+                      <div>
+                        <p className="font-semibold" style={{ color: '#f87171' }}>{a.eventos?.tipos_evento?.nombre}</p>
+                        <p className="t-mut text-xs">{a.eventos?.candados?.descripcion} — {new Date(a.eventos?.ocurrido_en).toLocaleString()}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs px-3 py-1 rounded-full font-semibold"
+                      style={{ background: 'rgba(239,68,68,.2)', color: '#fca5a5' }}>Nivel {a.nivel}</span>
+                  </motion.div>
+                ))}
+              </div>
+              {totalPag > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-4">
+                  <button onClick={() => setPagAlarmas(p => Math.max(0, p - 1))} disabled={pag === 0}
+                    className="px-3 py-1.5 rounded-lg text-xs surface-soft border bd t-pri disabled:opacity-40">← Anterior</button>
+                  {Array.from({ length: totalPag }, (_, n) => (
+                    <button key={n} onClick={() => setPagAlarmas(n)}
+                      className="w-8 h-8 rounded-lg text-xs font-semibold border bd"
+                      style={n === pag
+                        ? { background: 'var(--danger)', color: '#fff', borderColor: 'var(--danger)' }
+                        : { background: 'var(--card)', color: 'var(--muted)' }}>{n + 1}</button>
+                  ))}
+                  <button onClick={() => setPagAlarmas(p => Math.min(totalPag - 1, p + 1))} disabled={pag === totalPag - 1}
+                    className="px-3 py-1.5 rounded-lg text-xs surface-soft border bd t-pri disabled:opacity-40">Siguiente →</button>
                 </div>
-                <span className="text-xs px-3 py-1 rounded-full font-semibold"
-                  style={{ background: 'rgba(239,68,68,.2)', color: '#fca5a5' }}>Nivel {a.nivel}</span>
-              </motion.div>
-            ))}
-          </div>
-        )}
+              )}
+            </>
+          )
+        })()}
       </section>
 
       {/* Últimos eventos */}
