@@ -30,12 +30,13 @@ export default function Candados() {
 
   const POR_PAGINA = 5
 
-  // Carga estado cada 30s (bateria, en_linea); ubicacion cada 2 min (120s)
+  // Refresco cada 30s: estado (en_linea, bateria) y ubicacion vienen juntos.
+  // La ubicacion solo cambia cuando el ESP32 postea (heartbeat ~3 min); el
+  // backend no la refresca sin datos frescos del dispositivo.
   useEffect(() => {
     cargar()
-    const t30 = setInterval(cargar, 30000)  // estado: 30s
-    const t120 = setInterval(cargar, 120000)  // ubicacion: 2 min
-    return () => { clearInterval(t30); clearInterval(t120) }
+    const t = setInterval(cargar, 30000)
+    return () => clearInterval(t)
   }, [])
 
   async function cargar() {
@@ -193,15 +194,16 @@ export default function Candados() {
                   <p className="t-mut text-xs mt-0.5">{c.codigo_dispositivo}{c.sim_numero ? ` · SIM: ${c.sim_numero}` : ''}</p>
                   <p className="t-mut text-xs mt-1">Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}</p>
                   {c.latitud != null && c.longitud != null && (
-                    <div className="mt-2 flex flex-col gap-1">
-                      <p className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>
-                        📍 Ubicación actual:
+                    <div className="mt-2 flex flex-col gap-0.5">
+                      <p className="text-xs font-semibold" style={{ color: c.en_linea ? 'var(--accent)' : 'var(--muted)' }}>
+                        📍 {c.en_linea ? 'Ubicación actual' : 'Última ubicación registrada'}
                       </p>
-                      <p className="text-xs font-mono t-pri">
+                      <button onClick={() => abrirMapa(c)} className="text-xs font-mono t-pri text-left hover:underline">
                         {Number(c.latitud).toFixed(6)}, {Number(c.longitud).toFixed(6)}
+                      </button>
+                      <p className="text-xs t-mut">
+                        {c.en_linea ? 'Se refresca cada 2 min · toca “Localizar” para GPS al instante' : 'El candado está desconectado'}
                       </p>
-                      <p className="text-xs t-mut">(actualizada cada 2 min)</p>
-                      <p className="text-xs t-mut mt-1">Última ubicación registrada: {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)}</p>
                     </div>
                   )}
                 </div>

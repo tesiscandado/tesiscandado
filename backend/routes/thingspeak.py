@@ -184,21 +184,27 @@ def _hacer_sync():
         if eid > max_entry:
             max_entry = eid
 
+    # ultima_conexion SOLO se actualiza si hay un feed NUEVO (el ESP32 posteo
+    # algo desde el ultimo sync). El canal siempre tiene feeds historicos, asi
+    # que NO se puede usar `feeds` como señal de vida: eso dejaba el candado
+    # eternamente "en linea" aunque estuviera apagado.
+    hay_feed_nuevo = max_entry > last_entry
+    if not hay_feed_nuevo:
+        # Sin datos nuevos: no se toca la BD. ultima_conexion envejece y el
+        # candado pasa a "desconectado" solo cuando de verdad dejo de reportar.
+        return {"ok": True, "procesados": 0, "ultimo_entry": max_entry}
+
     cambios = {
         "ts_entry":        max_entry,
         "estado_gsm":      "ok",
+        "ultima_conexion": datetime.now(timezone.utc).isoformat(),
     }
-    # IMPORTANTE: actualizar ultima_conexion SIEMPRE que se sincronice,
-    # aunque no haya feeds nuevos. Esto asegura que en_linea sea correcto.
-    if max_entry > last_entry or feeds:
-        cambios["ultima_conexion"] = datetime.now(timezone.utc).isoformat()
-
+    # La ubicacion/bateria solo se refrescan con datos frescos del dispositivo
     if ult_lat is not None: cambios["latitud"] = ult_lat
     if ult_lon is not None: cambios["longitud"] = ult_lon
     if ult_bat is not None: cambios["nivel_bateria"] = ult_bat
     if ult_sol is not None: cambios["estado_solenoide"] = "abierto" if ult_sol == 1 else "cerrado"
 
-    if cambios:  # solo actualizar si hay cambios
-        supabase.table("candados").update(cambios).eq("id", candado_id).execute()
+    supabase.table("candados").update(cambios).eq("id", candado_id).execute()
 
     return {"ok": True, "procesados": procesados, "ultimo_entry": max_entry}
