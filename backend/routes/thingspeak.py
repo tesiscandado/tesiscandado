@@ -141,6 +141,30 @@ def _hacer_sync():
     max_entry  = last_entry
     ult_lat = ult_lon = ult_bat = ult_sol = None
 
+    # Throttle de guardado: solo se guarda 1 posicion cada 5 min (mientras el
+    # candado esta activo/reportando). Se parte de la ultima posicion guardada.
+    from datetime import timedelta
+    INTERVALO_GUARDADO = timedelta(minutes=5)
+
+    def _parse_dt(s):
+        if not s:
+            return None
+        try:
+            d = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+            return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return None
+
+    ult_pos = (
+        supabase.table("posiciones")
+        .select("capturado_en")
+        .eq("candado_id", candado_id)
+        .order("capturado_en", desc=True)
+        .limit(1)
+        .execute()
+    )
+    ultimo_guardado = _parse_dt(ult_pos.data[0]["capturado_en"]) if ult_pos.data else None
+
     for f in feeds:
         eid = f.get("entry_id", 0) or 0
 
@@ -156,19 +180,23 @@ def _hacer_sync():
         lat_f = _num(f.get("field1"))
         lon_f = _num(f.get("field2"))
 
-        # NUEVO: guardar el punto en la ruta (rastro GPS del recorrido)
+        # Guardar el punto en la ruta (rastro GPS), pero solo 1 cada 5 min:
+        # asi el historial no se llena de puntos casi idénticos.
         if lat_f is not None and lon_f is not None:
-            pos = {"candado_id": candado_id, "latitud": lat_f, "longitud": lon_f}
-            if f.get("created_at"):
-                pos["capturado_en"] = f.get("created_at")
-            if ruta_id is not None:
-                pos["ruta_id"] = ruta_id
-            try:
-                supabase.table("posiciones").insert(pos).execute()
-            except Exception:
-                # columna ruta_id aun no creada: guardar sin asociar
-                pos.pop("ruta_id", None)
-                supabase.table("posiciones").insert(pos).execute()
+            cap_dt = _parse_dt(f.get("created_at")) or datetime.now(timezone.utc)
+            if ultimo_guardado is None or (cap_dt - ultimo_guardado) >= INTERVALO_GUARDADO:
+                pos = {"candado_id": candado_id, "latitud": lat_f, "longitud": lon_f}
+                if f.get("created_at"):
+                    pos["capturado_en"] = f.get("created_at")
+                if ruta_id is not None:
+                    pos["ruta_id"] = ruta_id
+                try:
+                    supabase.table("posiciones").insert(pos).execute()
+                except Exception:
+                    # columna ruta_id aun no creada: guardar sin asociar
+                    pos.pop("ruta_id", None)
+                    supabase.table("posiciones").insert(pos).execute()
+                ultimo_guardado = cap_dt
 
         # Eventos nuevos (las alarmas se guardan con las coordenadas del punto)
         ev_code  = int(_num(f.get("field4"))) if _num(f.get("field4")) is not None else 0

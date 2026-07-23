@@ -158,7 +158,7 @@ export default function Candados() {
       return
     }
     try {
-      const res = await api.get(`/candados/${candado.id}/ubicaciones`, { params: { limite: 20 } })
+      const res = await api.get(`/candados/${candado.id}/ubicaciones`, { params: { limite: 100 } })
       setHistorial({ candado, puntos: res.data || [], cargando: false })
     } catch {
       setHistorial({ candado, puntos: [], cargando: false })

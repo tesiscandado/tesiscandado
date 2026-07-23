@@ -1,7 +1,5 @@
 // Modal genérico con estilo propio (reemplaza alert/confirm del navegador)
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet'
-import 'leaflet/dist/leaflet.css'
-import { useEffect } from 'react'
+import { useState } from 'react'
 
 export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
   if (!open) return null
@@ -115,36 +113,33 @@ export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true, ca
   )
 }
 
-// Ajusta el mapa para que se vean todos los puntos
-function FitPuntos({ puntos }) {
-  const map = useMap()
-  useEffect(() => {
-    if (puntos.length > 0) {
-      const latlngs = puntos.map(p => [Number(p.latitud), Number(p.longitud)])
-      try { map.fitBounds(latlngs, { padding: [30, 30], maxZoom: 16 }) } catch { /* noop */ }
-    }
-    const t = setTimeout(() => map.invalidateSize(), 200)
-    return () => clearTimeout(t)
-  }, [puntos.length]) // eslint-disable-line react-hooks/exhaustive-deps
-  return null
-}
-
-// Modal con el historial de últimas ubicaciones (rastro GPS reciente)
+// Modal con el historial de últimas ubicaciones: LISTA (fecha + coordenadas)
+// y, al elegir una, un mini-mapa con el punto de esas coordenadas.
 export function HistorialModal({ open, onClose, titulo, puntos = [], cargando = false }) {
-  // Los puntos vienen del más reciente al más antiguo; para dibujar el trazo
-  // en orden cronológico los invertimos (viejo -> nuevo).
-  const orden = [...puntos].reverse()
-  const linea = orden.map(p => [Number(p.latitud), Number(p.longitud)])
-  const centro = linea.length ? linea[linea.length - 1] : [-2.170998, -79.922359]
+  const [sel, setSel] = useState(null)   // punto seleccionado para ver en el mapa
+  const [pag, setPag] = useState(0)      // pagina actual de la lista
+
+  const POR_PAGINA = 6
+  const totalPag = Math.ceil(puntos.length / POR_PAGINA)
+  const pagAct = Math.min(pag, Math.max(0, totalPag - 1))
+  const visibles = puntos.slice(pagAct * POR_PAGINA, pagAct * POR_PAGINA + POR_PAGINA)
+
+  // Reiniciar la selección y la página al cerrar
+  const cerrar = () => { setSel(null); setPag(0); onClose() }
+
+  const delta = 0.004
+  const mapSrc = sel
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${(Number(sel.longitud) - delta).toFixed(6)},${(Number(sel.latitud) - delta).toFixed(6)},${(Number(sel.longitud) + delta).toFixed(6)},${(Number(sel.latitud) + delta).toFixed(6)}&layer=mapnik&marker=${sel.latitud},${sel.longitud}`
+    : ''
 
   return (
-    <Modal open={open} onClose={onClose} title={titulo} maxWidth="max-w-3xl">
+    <Modal open={open} onClose={cerrar} title={titulo} maxWidth="max-w-2xl">
       {cargando ? (
         <div className="text-center py-10">
           <p className="text-4xl mb-3 animate-pulse">🗺️</p>
           <p className="t-pri font-medium">Cargando historial de ubicaciones…</p>
         </div>
-      ) : orden.length === 0 ? (
+      ) : puntos.length === 0 ? (
         <div className="text-center py-10">
           <p className="text-4xl mb-3">📭</p>
           <p className="t-pri font-medium">Sin ubicaciones registradas</p>
@@ -154,41 +149,71 @@ export function HistorialModal({ open, onClose, titulo, puntos = [], cargando = 
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="rounded-xl overflow-hidden border bd" style={{ height: 380 }}>
-            <MapContainer center={centro} zoom={15} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
-              <TileLayer attribution="&copy; OpenStreetMap"
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <FitPuntos puntos={orden} />
-              {linea.length > 1 && (
-                <Polyline positions={linea} pathOptions={{ color: '#3b82f6', weight: 4, opacity: 0.8 }} />
-              )}
-              {orden.map((p, idx) => {
-                const esUltimo = idx === orden.length - 1   // más reciente
-                return (
-                  <CircleMarker key={p.id ?? idx} center={[Number(p.latitud), Number(p.longitud)]}
-                    radius={esUltimo ? 9 : 5}
-                    pathOptions={{
-                      color: esUltimo ? '#22c55e' : '#3b82f6',
-                      weight: esUltimo ? 3 : 1,
-                      fillColor: esUltimo ? '#22c55e' : '#3b82f6', fillOpacity: 1,
-                    }}>
-                    <Tooltip>
-                      {`${esUltimo ? '📍 Más reciente' : `#${orden.length - idx}`} · ${p.capturado_en ? new Date(p.capturado_en).toLocaleString() : ''}`}
-                    </Tooltip>
-                  </CircleMarker>
-                )
-              })}
-            </MapContainer>
+          {/* Mini-mapa del punto seleccionado */}
+          {sel && (
+            <div className="flex flex-col gap-1.5">
+              <div className="rounded-xl overflow-hidden border bd">
+                <iframe title="mapa-punto" width="100%" height="240" style={{ border: 0 }} src={mapSrc} />
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="t-mut text-xs font-mono">
+                  📍 {Number(sel.latitud).toFixed(6)}, {Number(sel.longitud).toFixed(6)}
+                </p>
+                <a href={`https://www.google.com/maps?q=${sel.latitud},${sel.longitud}`}
+                  target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 text-xs">
+                  Abrir en Google Maps ↗
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Lista de ubicaciones (más reciente primero) */}
+          <div className="flex flex-col gap-2">
+            {visibles.map((p, i) => {
+              const idx = pagAct * POR_PAGINA + i   // índice global
+              return (
+                <div key={p.id ?? idx}
+                  className="flex items-center justify-between gap-3 p-3 rounded-xl border bd surface-soft">
+                  <div className="min-w-0">
+                    <p className="t-pri text-sm font-medium">
+                      {idx === 0 ? '📍 Más reciente' : `Ubicación #${puntos.length - idx}`}
+                    </p>
+                    <p className="t-mut text-xs">
+                      {p.capturado_en ? new Date(p.capturado_en).toLocaleString() : 'Sin fecha'}
+                    </p>
+                    <p className="t-mut text-xs font-mono truncate">
+                      {Number(p.latitud).toFixed(6)}, {Number(p.longitud).toFixed(6)}
+                    </p>
+                  </div>
+                  <button onClick={() => setSel(p)}
+                    className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                    style={sel === p
+                      ? { background: 'var(--accent)', color: '#fff' }
+                      : { background: 'rgba(59,130,246,.15)', color: '#60a5fa' }}>
+                    🗺️ Ver mapa
+                  </button>
+                </div>
+              )
+            })}
           </div>
-          <div className="flex items-center justify-between text-xs t-mut">
-            <span>🟢 Más reciente · 🔵 Anteriores ({orden.length} ubicaciones)</span>
-            {linea.length > 0 && (
-              <a href={`https://www.google.com/maps?q=${linea[linea.length - 1][0]},${linea[linea.length - 1][1]}`}
-                target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                Abrir última en Google Maps ↗
-              </a>
-            )}
-          </div>
+
+          {/* Paginación */}
+          {totalPag > 1 && (
+            <div className="flex items-center justify-center gap-2">
+              <button onClick={() => setPag(p => Math.max(0, p - 1))} disabled={pagAct === 0}
+                className="px-3 py-1.5 rounded-lg text-xs surface-soft border bd t-pri disabled:opacity-40">← Anterior</button>
+              {Array.from({ length: totalPag }, (_, n) => (
+                <button key={n} onClick={() => setPag(n)}
+                  className="w-8 h-8 rounded-lg text-xs font-semibold border bd"
+                  style={n === pagAct
+                    ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' }
+                    : { background: 'var(--card)', color: 'var(--muted)' }}>{n + 1}</button>
+              ))}
+              <button onClick={() => setPag(p => Math.min(totalPag - 1, p + 1))} disabled={pagAct === totalPag - 1}
+                className="px-3 py-1.5 rounded-lg text-xs surface-soft border bd t-pri disabled:opacity-40">Siguiente →</button>
+            </div>
+          )}
+          <p className="t-mut text-xs text-center">{puntos.length} ubicaciones guardadas (una cada ~5 min mientras el candado está activo)</p>
         </div>
       )}
     </Modal>
