@@ -112,8 +112,7 @@ const char TS_WRITEKEY[]= "C2GVMKCV7AYYEQM8";
 // El ESP32 solo dispara UN pulso y verifica que el reed confirme la apertura.
 // Si falla, reintenta hasta 3 veces.
 const unsigned long PULSO_TRIGGER_MS  = 300;    // duracion del pulso de disparo
-const unsigned long TIEMPO_CONFIRMACION_MS = 12000;  // esperar a que cierre (10s + margen)
-const int MAX_REINTENTOS_APERTURA = 3;  // cuantos intentos antes de reportar fallo
+const int MAX_REINTENTOS_APERTURA = 3;  // cuantos intentos antes de reportar fallo (modo instalado)
 
 // Pausar las alarmas del sensor reed (pruebas de mesa: sin puerta real el
 // reed dispara "Puerta abierta sin autorizacion" a cada rato y llena el
@@ -370,6 +369,21 @@ void abrirSolenoide() {
   solenoideAbierto = true;
   digitalWrite(BUZZER_PIN, BUZZER_OFF);   // silencio durante la apertura
 
+  // MODO MESA (ALERTAS_REED_ACTIVAS = false): no hay puerta fisica, asi que
+  // el reed nunca confirma. Solo se manda 1 pulso y se asume OK (sin reintentos
+  // ni reportes de fallo, para no llenar ThingSpeak de falsos "fallo solenoide").
+  if (!ALERTAS_REED_ACTIVAS) {
+    Serial.println("Abriendo solenoide (1 pulso, modo mesa sin verificar reed)...");
+    digitalWrite(RELAY_PIN, RELAY_ON);
+    delay(PULSO_TRIGGER_MS);
+    digitalWrite(RELAY_PIN, RELAY_OFF);
+    delay(500);
+    reedEstadoAnt = (digitalRead(REED_PIN) == LOW);
+    solenoideAbierto = false;
+    return;
+  }
+
+  // MODO INSTALADO: verificar con el reed y reintentar si no confirma.
   bool apertura_exitosa = false;
   for (int intento = 1; intento <= MAX_REINTENTOS_APERTURA; intento++) {
     Serial.printf("Abriendo solenoide (intento %d/%d)...\n", intento, MAX_REINTENTOS_APERTURA);
@@ -381,10 +395,8 @@ void abrirSolenoide() {
 
     // Vigilar el reed: debe abrir dentro de 2 segundos
     unsigned long t = millis();
-    bool confirmo = false;
     while (millis() - t < 2000) {
       if (digitalRead(REED_PIN) == HIGH) {
-        confirmo = true;
         Serial.println("Apertura confirmada por el reed");
         apertura_exitosa = true;
         break;
