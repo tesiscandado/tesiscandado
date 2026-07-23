@@ -146,12 +146,6 @@ export default function Ruta() {
     } catch { setMsg('No se pudo etiquetar el tramo') }
   }
 
-  async function sembrarDemo() {
-    setCargando(true)
-    try { await api.post(`/candados/${candadoId}/ruta/demo`); await cargarRuta(); setMsg('Ruta de prueba sembrada') }
-    catch { setMsg('No se pudo sembrar la ruta demo') }
-    finally { setCargando(false) }
-  }
   async function limpiarRastro() {
     setCargando(true)
     try { await api.delete(`/candados/${candadoId}/ruta`); await cargarRuta(); setSelA(null); setSelB(null); setMsg('Rastro borrado') }
@@ -171,9 +165,16 @@ export default function Ruta() {
       color: colorDe(b.nivel_seguridad),
     })
   }
-  const center = puntos.length ? [Number(puntos[0].latitud), Number(puntos[0].longitud)] : [4.711, -74.072]
-
   const candadoSel = candados.find(c => c.id === candadoId)
+
+  // Centro por defecto: Ecuador (Guayaquil). Si el candado tiene ultima
+  // ubicacion conocida, se centra ahi; con puntos de ruta, en el primero.
+  const ECUADOR_CENTER = [-2.170998, -79.922359]
+  const center = puntos.length
+    ? [Number(puntos[0].latitud), Number(puntos[0].longitud)]
+    : (candadoSel?.latitud != null && candadoSel?.longitud != null
+        ? [Number(candadoSel.latitud), Number(candadoSel.longitud)]
+        : ECUADOR_CENTER)
 
   return (
     <motion.div className="flex flex-col gap-5 max-w-7xl mx-auto"
@@ -343,11 +344,7 @@ export default function Ruta() {
                 <div className="t-mut text-xs">alarmas</div>
               </div>
             </div>
-            <p className="t-mut text-xs mb-2">Herramientas de prueba (mientras el prototipo no reporta GPS):</p>
-            <div className="flex gap-2">
-              <button onClick={sembrarDemo} disabled={cargando || !candadoId} className={`${btnCls} flex-1 btn-accent disabled:opacity-50`}>Sembrar ruta demo</button>
-              <button onClick={limpiarRastro} disabled={cargando || !candadoId} className={`${btnCls} surface-soft border bd t-pri disabled:opacity-50`}>Limpiar</button>
-            </div>
+            <button onClick={limpiarRastro} disabled={cargando || !candadoId} className={`${btnCls} w-full surface-soft border bd t-pri disabled:opacity-50`}>Limpiar rastro</button>
           </div>
         </div>
       </div>
