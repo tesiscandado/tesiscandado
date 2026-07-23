@@ -176,6 +176,26 @@ def ubicacion_actual(id: int, desde: str = None):
     return {"fresca": False}
 
 
+@router.get("/{id}/ubicaciones")
+def ultimas_ubicaciones(id: int, limite: int = 20):
+    """Últimas N posiciones GPS del candado (más recientes primero), para
+    mostrar el historial reciente en un mini-mapa desde la página de Candados."""
+    try:
+        from routes.thingspeak import sync_thingspeak
+        sync_thingspeak()
+    except Exception:
+        pass
+    res = (
+        supabase.table("posiciones")
+        .select("id, latitud, longitud, capturado_en")
+        .eq("candado_id", id)
+        .order("capturado_en", desc=True)
+        .limit(limite)
+        .execute()
+    )
+    return res.data or []
+
+
 @router.get("/comando/{codigo}")
 def consultar_comando(codigo: str):
     """El ESP32 consulta si hay una orden pendiente (ej: enviar ubicación).

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import api from '../api'
-import { ConfirmModal, MapaModal } from '../components/Modal'
+import { ConfirmModal, MapaModal, HistorialModal } from '../components/Modal'
 
 const btnCls = 'px-4 py-2 rounded-lg font-semibold text-sm transition'
 const fld = 'fld rounded-lg px-4 py-2.5 w-full'
@@ -24,6 +24,7 @@ export default function Candados() {
   const [expandido, setExpandido] = useState(null)
   const [alertas, setAlertas]     = useState({})
   const [mapa, setMapa]           = useState(null)
+  const [historial, setHistorial] = useState(null)   // { candado, puntos, cargando }
   const [confirmar, setConfirmar] = useState(null)
   const [limite, setLimite]       = useState(5)
   const [pagAlertas, setPagAlertas] = useState({})   // pagina actual de alertas por candado
@@ -148,6 +149,22 @@ export default function Candados() {
     setMapa(null)
   }
 
+  // Abre el historial de últimas ubicaciones en un mini-mapa
+  async function verHistorial(candado) {
+    setHistorial({ candado, puntos: [], cargando: true })
+    // Con precarga de demo, mostrar el punto fijo como único historial
+    if (precarga[candado.id]) {
+      setHistorial({ candado, puntos: [{ id: 'demo', ...COORDS_DEMO, capturado_en: new Date().toISOString() }], cargando: false })
+      return
+    }
+    try {
+      const res = await api.get(`/candados/${candado.id}/ubicaciones`, { params: { limite: 20 } })
+      setHistorial({ candado, puntos: res.data || [], cargando: false })
+    } catch {
+      setHistorial({ candado, puntos: [], cargando: false })
+    }
+  }
+
   // Vista con la precarga de demo aplicada encima de los datos reales
   const candadosVista = candados.map(c => (precarga[c.id] ? { ...c, ...precarga[c.id] } : c))
   const conectados = candadosVista.filter(c => c.en_linea).length
@@ -251,6 +268,7 @@ export default function Candados() {
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={() => { setEditId(c.id); setForm({ codigo_dispositivo: c.codigo_dispositivo, descripcion: c.descripcion ?? '', sim_numero: c.sim_numero ?? '' }); setMsg(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }} className={`${btnCls} surface-soft border bd t-pri text-xs`}>Editar</button>
                   <button onClick={() => abrirMapa(c)} className={`${btnCls} text-xs`} style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>📍 Localizar</button>
+                  <button onClick={() => verHistorial(c)} className={`${btnCls} text-xs`} style={{ background: 'rgba(59,130,246,.15)', color: '#60a5fa' }}>🗺️ Ubicaciones</button>
                   <button onClick={() => verAlertas(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.12)', color: '#f87171' }}>{expandido === c.id ? 'Ocultar alertas ▲' : '🔔 Alertas ▼'}</button>
                   <button onClick={() => eliminar(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>Eliminar</button>
                   <button onClick={() => precargarDemo(c)} title="Precargar estado activo y ubicación (demo)"
@@ -321,6 +339,9 @@ export default function Candados() {
         titulo={`Ubicación — ${mapa?.descripcion || mapa?.codigo_dispositivo || ''}`}
         lat={mapa?.latitud} lon={mapa?.longitud} en_linea={mapa?.en_linea}
         cargando={mapa?.cargando} />
+      <HistorialModal open={!!historial} onClose={() => setHistorial(null)}
+        titulo={`Últimas ubicaciones — ${historial?.candado?.descripcion || historial?.candado?.codigo_dispositivo || ''}`}
+        puntos={historial?.puntos || []} cargando={historial?.cargando} />
       <ConfirmModal open={!!confirmar} title={confirmar?.title} mensaje={confirmar?.mensaje}
         confirmText={confirmar?.confirmText} danger={confirmar?.danger}
         onConfirm={confirmar?.onConfirm || (() => {})} onClose={() => setConfirmar(null)} />
