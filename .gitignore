@@ -14,3 +14,5 @@ app-movil/node_modules/
 
 # Carpeta de videos fuente (pesados) - el usado va en frontend/public
 video/
+.claude/
+app-movil/.claude/
