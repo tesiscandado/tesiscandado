@@ -30,11 +30,12 @@ export default function Candados() {
 
   const POR_PAGINA = 5
 
-  // Carga inicial + refresco automatico cada 30s (ubicacion, bateria, en_linea)
+  // Carga estado cada 30s (bateria, en_linea); ubicacion cada 2 min (120s)
   useEffect(() => {
     cargar()
-    const t = setInterval(cargar, 30000)
-    return () => clearInterval(t)
+    const t30 = setInterval(cargar, 30000)  // estado: 30s
+    const t120 = setInterval(cargar, 120000)  // ubicacion: 2 min
+    return () => { clearInterval(t30); clearInterval(t120) }
   }, [])
 
   async function cargar() {
@@ -192,9 +193,16 @@ export default function Candados() {
                   <p className="t-mut text-xs mt-0.5">{c.codigo_dispositivo}{c.sim_numero ? ` · SIM: ${c.sim_numero}` : ''}</p>
                   <p className="t-mut text-xs mt-1">Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}</p>
                   {c.latitud != null && c.longitud != null && (
-                    <button onClick={() => abrirMapa(c)} className="text-xs mt-1 inline-flex items-center gap-1" style={{ color: 'var(--accent)' }}>
-                      📍 Última conocida: {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)} — pedir actual
-                    </button>
+                    <div className="mt-2 flex flex-col gap-1">
+                      <p className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>
+                        📍 Ubicación actual:
+                      </p>
+                      <p className="text-xs font-mono t-pri">
+                        {Number(c.latitud).toFixed(6)}, {Number(c.longitud).toFixed(6)}
+                      </p>
+                      <p className="text-xs t-mut">(actualizada cada 2 min)</p>
+                      <p className="text-xs t-mut mt-1">Última ubicación registrada: {Number(c.latitud).toFixed(5)}, {Number(c.longitud).toFixed(5)}</p>
+                    </div>
                   )}
                 </div>
 
