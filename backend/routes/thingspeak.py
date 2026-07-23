@@ -185,15 +185,20 @@ def _hacer_sync():
             max_entry = eid
 
     cambios = {
-        "ultima_conexion": datetime.now(timezone.utc).isoformat(),
         "ts_entry":        max_entry,
         "estado_gsm":      "ok",
     }
+    # IMPORTANTE: actualizar ultima_conexion SIEMPRE que se sincronice,
+    # aunque no haya feeds nuevos. Esto asegura que en_linea sea correcto.
+    if max_entry > last_entry or feeds:
+        cambios["ultima_conexion"] = datetime.now(timezone.utc).isoformat()
+
     if ult_lat is not None: cambios["latitud"] = ult_lat
     if ult_lon is not None: cambios["longitud"] = ult_lon
     if ult_bat is not None: cambios["nivel_bateria"] = ult_bat
     if ult_sol is not None: cambios["estado_solenoide"] = "abierto" if ult_sol == 1 else "cerrado"
 
-    supabase.table("candados").update(cambios).eq("id", candado_id).execute()
+    if cambios:  # solo actualizar si hay cambios
+        supabase.table("candados").update(cambios).eq("id", candado_id).execute()
 
     return {"ok": True, "procesados": procesados, "ultimo_entry": max_entry}
