@@ -152,16 +152,16 @@ export default function Candados() {
   // Abre el historial de últimas ubicaciones en un mini-mapa
   async function verHistorial(candado) {
     setHistorial({ candado, puntos: [], cargando: true })
-    // Con precarga de demo, mostrar el punto fijo como único historial
-    if (precarga[candado.id]) {
-      setHistorial({ candado, puntos: [{ id: 'demo', ...COORDS_DEMO, capturado_en: new Date().toISOString() }], cargando: false })
-      return
-    }
+    // Punto extra por precarga: se agrega COMO ADICIONAL (el más reciente),
+    // sin reemplazar las ubicaciones guardadas en la BD.
+    const extra = precarga[candado.id]
+      ? [{ id: 'precarga', latitud: precarga[candado.id].latitud, longitud: precarga[candado.id].longitud, capturado_en: new Date().toISOString() }]
+      : []
     try {
       const res = await api.get(`/candados/${candado.id}/ubicaciones`, { params: { limite: 100 } })
-      setHistorial({ candado, puntos: res.data || [], cargando: false })
+      setHistorial({ candado, puntos: [...extra, ...(res.data || [])], cargando: false })
     } catch {
-      setHistorial({ candado, puntos: [], cargando: false })
+      setHistorial({ candado, puntos: extra, cargando: false })
     }
   }
 
@@ -271,10 +271,10 @@ export default function Candados() {
                   <button onClick={() => verHistorial(c)} className={`${btnCls} text-xs`} style={{ background: 'rgba(59,130,246,.15)', color: '#60a5fa' }}>🗺️ Ubicaciones</button>
                   <button onClick={() => verAlertas(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.12)', color: '#f87171' }}>{expandido === c.id ? 'Ocultar alertas ▲' : '🔔 Alertas ▼'}</button>
                   <button onClick={() => eliminar(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>Eliminar</button>
-                  <button onClick={() => precargarDemo(c)} title="Precargar estado activo y ubicación (demo)"
+                  <button onClick={() => precargarDemo(c)}
                     className="px-2 py-2 rounded-lg text-xs surface-soft border bd t-mut hover:opacity-70 transition">🔄</button>
                   {precarga[c.id] && (
-                    <button onClick={() => limpiarPrecarga(c.id)} title="Quitar precarga y volver a datos reales"
+                    <button onClick={() => limpiarPrecarga(c.id)}
                       className="px-2 py-2 rounded-lg text-xs surface-soft border bd t-mut hover:opacity-70 transition">✕</button>
                   )}
                 </div>
