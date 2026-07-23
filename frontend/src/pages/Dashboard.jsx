@@ -35,10 +35,11 @@ export default function Dashboard() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [mapa, setMapa] = useState(null)
-  const [limite, setLimite] = useState(7)
   const [pagAlarmas, setPagAlarmas] = useState(0)   // pagina actual de alarmas
+  const [pagEventos, setPagEventos] = useState(0)   // pagina actual de eventos
 
   const ALARMAS_POR_PAGINA = 5   // alarmas por pagina
+  const EVENTOS_POR_PAGINA = 10  // eventos por pagina
 
   async function cargar() {
     try {
@@ -60,7 +61,9 @@ export default function Dashboard() {
 
   const eg = estadoGeneral[data.estado_general] ?? estadoGeneral.normal
   const ind = data.indicadores
-  const eventos = data.eventos_recientes.slice(0, limite)
+  const totalPagEventos = Math.ceil(data.eventos_recientes.length / EVENTOS_POR_PAGINA)
+  const pagEv = Math.min(pagEventos, Math.max(0, totalPagEventos - 1))
+  const eventos = data.eventos_recientes.slice(pagEv * EVENTOS_POR_PAGINA, pagEv * EVENTOS_POR_PAGINA + EVENTOS_POR_PAGINA)
 
   return (
     <div className="flex flex-col gap-7 max-w-7xl mx-auto">
@@ -204,13 +207,7 @@ export default function Dashboard() {
       <section>
         <div className="flex items-center justify-between mb-3">
           <h3 className="t-mut text-xs uppercase tracking-wider font-semibold">Últimos eventos</h3>
-          <label className="flex items-center gap-2 text-xs t-mut">
-            Mostrar
-            <select value={limite} onChange={e => setLimite(Number(e.target.value))}
-              className="fld rounded-lg px-2 py-1 text-xs">
-              {[7, 15, 30, 50].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
+          <span className="t-mut text-xs">{data.eventos_recientes.length} en total</span>
         </div>
         <div className="surface-card rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
@@ -247,10 +244,20 @@ export default function Dashboard() {
             </tbody>
           </table>
         </div>
-        {data.eventos_recientes.length > limite && (
-          <p className="t-mut text-xs text-center mt-3">
-            Mostrando {limite} de {data.eventos_recientes.length} eventos
-          </p>
+        {totalPagEventos > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-4">
+            <button onClick={() => setPagEventos(p => Math.max(0, p - 1))} disabled={pagEv === 0}
+              className="px-3 py-1.5 rounded-lg text-xs surface-soft border bd t-pri disabled:opacity-40">← Anterior</button>
+            {Array.from({ length: totalPagEventos }, (_, n) => (
+              <button key={n} onClick={() => setPagEventos(n)}
+                className="w-8 h-8 rounded-lg text-xs font-semibold border bd"
+                style={n === pagEv
+                  ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' }
+                  : { background: 'var(--card)', color: 'var(--muted)' }}>{n + 1}</button>
+            ))}
+            <button onClick={() => setPagEventos(p => Math.min(totalPagEventos - 1, p + 1))} disabled={pagEv === totalPagEventos - 1}
+              className="px-3 py-1.5 rounded-lg text-xs surface-soft border bd t-pri disabled:opacity-40">Siguiente →</button>
+          </div>
         )}
       </section>
 
