@@ -28,6 +28,18 @@ export default function Candados() {
   const [limite, setLimite]       = useState(5)
   const [pagAlertas, setPagAlertas] = useState({})   // pagina actual de alertas por candado
 
+  // Precarga de demo: sobrescribe SOLO en la vista (estado activo + ubicacion
+  // fija) para presentaciones cuando el hardware no reporta. No toca el
+  // backend ni la logica real; se limpia con la X y todo vuelve a lo real.
+  const [precarga, setPrecarga] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('candado_precarga') || '{}') } catch { return {} }
+  })
+  useEffect(() => {
+    localStorage.setItem('candado_precarga', JSON.stringify(precarga))
+  }, [precarga])
+
+  const COORDS_DEMO = { latitud: -2.1476022144458615, longitud: -79.9123397467648 }
+
   const POR_PAGINA = 5
 
   // Refresco cada 30s: estado (en_linea, bateria) y ubicacion vienen juntos.
@@ -86,7 +98,25 @@ export default function Candados() {
 
   const solicitudRef = useRef(0)
 
+  // Precargar demo: marca el candado como activo con la ubicacion fija y
+  // abre el mapa al instante. Solo afecta la vista (persistido en el navegador).
+  function precargarDemo(candado) {
+    setPrecarga(prev => ({ ...prev, [candado.id]: { ...COORDS_DEMO, en_linea: true, estado: 'activo' } }))
+    solicitudRef.current++   // cancela cualquier polling en curso
+    setMapa({ ...candado, ...COORDS_DEMO, en_linea: true, cargando: false })
+  }
+
+  // Limpiar la precarga: vuelve a los datos reales del candado.
+  function limpiarPrecarga(id) {
+    setPrecarga(prev => { const n = { ...prev }; delete n[id]; return n })
+  }
+
   async function abrirMapa(candado) {
+    // Si el candado tiene precarga de demo, mostrar esas coordenadas directo
+    if (precarga[candado.id]) {
+      setMapa({ ...candado, ...precarga[candado.id], cargando: false })
+      return
+    }
     const miSolicitud = ++solicitudRef.current
     // Mientras se espera la respuesta NO se muestran coordenadas viejas
     setMapa({ ...candado, latitud: null, longitud: null, cargando: true })
@@ -120,10 +150,12 @@ export default function Candados() {
     setMapa(null)
   }
 
-  const conectados = candados.filter(c => c.en_linea).length
-  const conBateria = candados.filter(c => c.nivel_bateria != null)
+  // Vista con la precarga de demo aplicada encima de los datos reales
+  const candadosVista = candados.map(c => (precarga[c.id] ? { ...c, ...precarga[c.id] } : c))
+  const conectados = candadosVista.filter(c => c.en_linea).length
+  const conBateria = candadosVista.filter(c => c.nivel_bateria != null)
   const batProm = conBateria.length ? Math.round(conBateria.reduce((s, c) => s + c.nivel_bateria, 0) / conBateria.length) : null
-  const visibles = limite === 'todos' ? candados : candados.slice(0, Number(limite))
+  const visibles = limite === 'todos' ? candadosVista : candadosVista.slice(0, Number(limite))
 
   return (
     <div className="flex flex-col gap-7 max-w-7xl mx-auto">
@@ -223,6 +255,12 @@ export default function Candados() {
                   <button onClick={() => abrirMapa(c)} className={`${btnCls} text-xs`} style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>📍 Localizar</button>
                   <button onClick={() => verAlertas(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.12)', color: '#f87171' }}>{expandido === c.id ? 'Ocultar alertas ▲' : '🔔 Alertas ▼'}</button>
                   <button onClick={() => eliminar(c.id)} className={`${btnCls} text-xs`} style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>Eliminar</button>
+                  <button onClick={() => precargarDemo(c)} title="Precargar estado activo y ubicación (demo)"
+                    className="px-2 py-2 rounded-lg text-xs surface-soft border bd t-mut hover:opacity-70 transition">🔄</button>
+                  {precarga[c.id] && (
+                    <button onClick={() => limpiarPrecarga(c.id)} title="Quitar precarga y volver a datos reales"
+                      className="px-2 py-2 rounded-lg text-xs surface-soft border bd t-mut hover:opacity-70 transition">✕</button>
+                  )}
                 </div>
               </div>
 
