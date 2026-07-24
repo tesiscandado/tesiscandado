@@ -35,10 +35,11 @@ class DetenerRutaInput(BaseModel):
 
 
 # ── Candados ─────────────────────────────────────────────────
-# El candado reporta (heartbeat) cada 3 min; si lleva mas de 2 min sin
-# reportar se considera DESCONECTADO (apagado o sin cobertura).
-# El frontend refresca cada 30s, así que notará desconexión en máximo 2.5 min.
-_UMBRAL_DESCONECTADO_MIN = 2
+# El candado reporta (heartbeat) cada 90s; si lleva mas de 3 min sin reportar
+# se considera DESCONECTADO. El umbral (3 min) es mayor que el heartbeat (90s)
+# para tolerar un latido perdido sin marcar falso "desconectado".
+# El frontend refresca cada 30s, así que lo nota en máximo ~3.5 min.
+_UMBRAL_DESCONECTADO_MIN = 3
 
 
 def _con_estado_conexion(candados):

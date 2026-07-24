@@ -125,8 +125,8 @@ export default function Candados() {
       const desde = sol.data.solicitado_en
 
       // Esperar una posición capturada DESPUÉS de la solicitud.
-      // Peor caso: sync del ESP32 (3 min) + fix GPS (60s) + post -> ~5 min
-      for (let i = 0; i < 60; i++) {
+      // Peor caso: sync del ESP32 (60s) + fix GPS (60s) + post -> ~2.5 min
+      for (let i = 0; i < 48; i++) {   // 48 * 5s = 4 min de margen
         await new Promise(r => setTimeout(r, 5000))
         if (solicitudRef.current !== miSolicitud) return   // modal cerrado
         const res = await api.get(`/candados/${candado.id}/ubicacion-actual`, { params: { desde } })

@@ -64,7 +64,7 @@ export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true, ca
           <p className="t-pri font-medium">Solicitando ubicación al candado…</p>
           <p className="t-mut text-sm mt-1">
             El candado enciende el GPS solo un momento para responder.
-            Puede tardar hasta 4–5 minutos.
+            Puede tardar hasta 2–3 minutos.
           </p>
         </div>
       ) : tiene && en_linea ? (

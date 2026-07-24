@@ -189,9 +189,9 @@ const int   N_SEED        = sizeof(TOKENS_SEED) / sizeof(TOKENS_SEED[0]);
 String tokensValidos[MAX_TOKENS];      // lista vigente (se llena al sincronizar)
 int    nTokensValidos = 0;
 unsigned long ultimoSyncTokens = 0;
-// Cada 3 min (bateria): cada peticion GPRS enciende la radio del SIM808.
-// Un token nuevo (o Iniciar/Detener ruta) tarda hasta 3 min en aplicarse.
-const unsigned long INTERVALO_SYNC_TOKENS = 180000;
+// Cada 60s: el ESP32 revisa el TalkBack (tokens + orden GPS/LOC). Mas corto
+// = ubicacion on-demand mas rapida (~1.5-2.5 min); mas largo = mas bateria.
+const unsigned long INTERVALO_SYNC_TOKENS = 60000;
 
 // -------------------------
 // ESTADO
@@ -227,8 +227,10 @@ const unsigned long COOLDOWN_RFID = 3000;
 float ultLat = 0, ultLon = 0;
 int   ultBat = 0;
 unsigned long ultimoPost = 0;
-// Heartbeat (bateria; GPS solo con ruta activa) cada 3 min para ahorrar pila
-const unsigned long INTERVALO_POST = 180000;
+// Heartbeat (señal de vida + bateria) cada 90s. Debe ser MENOR que el umbral
+// de desconexion del backend (3 min) para que el candado no parpadee
+// "Desconectado" entre latidos. La radio ya despierta cada 60s por el sync.
+const unsigned long INTERVALO_POST = 90000;
 const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
 int  saludHW = 0;          // 0=ok 1=rfid 2=acelerometro 3=solenoide
 bool solenoideAbierto = false;
