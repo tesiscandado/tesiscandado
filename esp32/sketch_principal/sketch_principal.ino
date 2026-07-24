@@ -235,9 +235,10 @@ const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
 int  saludHW = 0;          // 0=ok 1=rfid 2=acelerometro 3=solenoide
 bool solenoideAbierto = false;
 
-// GPS bajo demanda (AHORRO DE BATERIA): arranca APAGADO; la web lo enciende
-// al iniciar una ruta (flag GPS:1/GPS:0 en el comando del TalkBack).
+// GPS SIEMPRE ENCENDIDO en segundo plano. gpsActivo indica que esta prendido;
+// tieneFixGPS indica si ya consiguio senal de satelites (fix valido).
 bool gpsActivo = false;
+bool tieneFixGPS = false;
 
 // fallos detectados
 bool falloRFID = false, falloMPU = false;
@@ -473,14 +474,24 @@ bool tokenAutorizado(String token) {
 }
 
 // -------------------------
-// GPS
+// GPS (encendido permanente, lectura en segundo plano)
 // -------------------------
-void actualizarGPS() {
+// Lee el GPS SIN spamear: actualiza la posicion si hay fix y solo imprime
+// cuando CONSIGUE o PIERDE el fix (no en cada intento). Devuelve true si hay fix.
+bool leerGPS() {
   float lat = 0, lon = 0, sp = 0, al = 0; int vs = 0, us = 0;
-  if (modem.getGPS(&lat, &lon, &sp, &al, &vs, &us) && lat != 0 && lon != 0) {
+  bool ok = modem.getGPS(&lat, &lon, &sp, &al, &vs, &us) && lat != 0 && lon != 0;
+  if (ok) {
     ultLat = lat; ultLon = lon;
-    Serial.printf("GPS: %.6f, %.6f\n", lat, lon);
+    if (!tieneFixGPS) {
+      tieneFixGPS = true;
+      Serial.printf(">>> GPS FIX CONSEGUIDO: %.6f, %.6f (%d satelites)\n", lat, lon, us);
+    }
+  } else if (tieneFixGPS) {
+    tieneFixGPS = false;
+    Serial.println("GPS perdio el fix (buscando de nuevo en segundo plano)");
   }
+  return ok;
 }
 
 // Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido;
@@ -497,62 +508,24 @@ void aplicarEstadoGPS(bool activar) {
 }
 
 // -------------------------
-// CAPTURA ON-DEMAND DE GPS (comando LOC:<nonce> del TalkBack)
-// Se enciende el GPS momentaneamente, captura 1 ubicacion y reporta a
-// ThingSpeak. Luego apaga el GPS (salvo que haya una ruta activa usandolo).
+// SOLICITUD ON-DEMAND DE UBICACION (comando LOC:<nonce> del TalkBack)
+// El GPS ya esta encendido en segundo plano, asi que NO se bloquea buscando:
+// si ya hay fix, reporta la posicion al instante; si aun no, avisa que se
+// reportara sola en cuanto el receptor consiga senal (el heartbeat la manda).
 // -------------------------
 void capturarUbicacionOnDemand() {
-  Serial.println("\n========================================");
-  Serial.println(">>> CAPTURA ON-DEMAND DE UBICACION (boton Localizar)");
-  Serial.println("Encendiendo GPS y buscando senal...");
-  Serial.println("========================================");
-
-  // Encender el GPS y CONFIRMAR que el SIM808 acepto el comando de encendido.
-  bool gpsOn = modem.enableGPS();
-  Serial.printf("modem.enableGPS() -> %s\n",
-    gpsOn ? "OK (el SIM808 encendio el GPS)" : "FALLO (el SIM808 NO encendio el GPS)");
-  // Verificar el estado real de alimentacion del GPS (AT+CGNSPWR?)
-  Serial.print("Estado GPS (AT+CGNSPWR?): ");
-  Serial.println(enviarAT("AT+CGNSPWR?", 2000));
-  delay(2000);   // el receptor GPS tarda un par de segundos en arrancar
-  unsigned long t = millis();
-  float lat = 0, lon = 0;
-  int intento = 0;
-
-  // Esperar hasta 90s a que el GPS obtenga fix. Se imprime el progreso
-  // (satelites visibles/usados) para ver si el modulo esta captando senal.
-  while (millis() - t < 90000) {
-    intento++;
-    float tmp_lat = 0, tmp_lon = 0, sp = 0, al = 0;
-    int vs = 0, us = 0;
-    bool ok = modem.getGPS(&tmp_lat, &tmp_lon, &sp, &al, &vs, &us);
-    Serial.printf("[GPS intento %d | %lus] satelites vistos=%d usados=%d  lat=%.6f lon=%.6f\n",
-      intento, (millis() - t) / 1000, vs, us, tmp_lat, tmp_lon);
-    if (ok && tmp_lat != 0 && tmp_lon != 0) {
-      lat = tmp_lat; lon = tmp_lon;
-      Serial.printf(">>> FIX GPS OBTENIDO: %.6f, %.6f (tras %lus, %d satelites)\n",
-        lat, lon, (millis() - t) / 1000, us);
-      break;
-    }
-    delay(3000);
-  }
-
-  // Actualizar variables globales y reportar a ThingSpeak
-  if (lat != 0 && lon != 0) {
-    ultLat = lat; ultLon = lon;
-    Serial.printf(">>> ENVIANDO coordenadas a ThingSpeak: lat=%.6f lon=%.6f\n", lat, lon);
-    // Respetar el limite de ThingSpeak (1 post cada 15s) para no perder el envio
+  modem.enableGPS();          // por si acaso quedo apagado tras un reinicio
+  gpsActivo = true;
+  leerGPS();                  // intento rapido de refrescar la posicion
+  if (tieneFixGPS && ultLat != 0 && ultLon != 0) {
     while (millis() - ultimoPost < MIN_ENTRE_POST) delay(500);
-    bool ok = postThingSpeak(0, saludHW, "Ubicacion on-demand");   // evento 0, solo GPS
-    Serial.printf(">>> Resultado del envio: %s (lat=%.6f, lon=%.6f)\n",
-      ok ? "OK (HTTP 200)" : "FALLO", lat, lon);
+    bool ok = postThingSpeak(0, saludHW, "Ubicacion on-demand");
+    Serial.printf(">>> Localizar: posicion enviada %.6f, %.6f (%s)\n",
+      ultLat, ultLon, ok ? "HTTP 200" : "FALLO");
   } else {
-    Serial.println(">>> NO SE OBTUVO FIX GPS en 90s.");
-    Serial.println("    Causa tipica: la antena GPS necesita VISTA AL CIELO (no funciona bien bajo techo).");
+    Serial.println(">>> Localizar: el GPS aun no tiene fix (buscando en segundo plano).");
+    Serial.println("    Se reportara automaticamente en cuanto consiga senal (antena con vista al cielo).");
   }
-
-  // El GPS queda ENCENDIDO (estado normal permanente); no se apaga.
-  Serial.println("========================================\n");
 }
 
 // -------------------------
@@ -735,13 +708,21 @@ void setup() {
 // -------------------------
 void loop() {
 
+  // ===== GPS EN SEGUNDO PLANO: lee cada 10s SIN spamear (solo avisa al
+  //       conseguir/perder fix). El GPS esta siempre encendido. =====
+  static unsigned long ultGpsPoll = 0;
+  if (millis() - ultGpsPoll > 10000) {
+    ultGpsPoll = millis();
+    leerGPS();
+  }
+
   // ===== DIAGNOSTICO cada 5s: touch, GPRS, GPS, reed y salud de sensores =====
   static unsigned long ultLog = 0;
   if (millis() - ultLog > 5000) {
     ultLog = millis();
     Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Reed=%s  Acel=%s  RFID=%s\n",
       digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO",
-      gpsActivo ? "ON" : "OFF",
+      tieneFixGPS ? "FIX" : "buscando",
       digitalRead(REED_PIN) == LOW ? "cerrado" : "ABIERTO",
       falloMPU ? "FALLO" : "ok",
       falloRFID ? "FALLO" : "ok");
@@ -936,9 +917,10 @@ void loop() {
     sincronizarTokens();
   }
 
-  // ===== TELEMETRIA periodica (bateria + GPS; el GPS esta siempre encendido) =====
+  // ===== TELEMETRIA periodica (bateria + posicion GPS de fondo) =====
+  // El poll de GPS en segundo plano ya mantiene ultLat/ultLon al dia; aqui
+  // solo se envia lo ultimo conocido junto con la bateria.
   if (millis() - ultimoPost >= INTERVALO_POST) {
-    actualizarGPS();   // el GPS esta prendido: reporta posicion apenas haya fix
     ultBat = modem.getBattPercent();
     postThingSpeak(0, saludHW, "heartbeat");
   }
