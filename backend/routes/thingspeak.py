@@ -60,6 +60,31 @@ def _crear_evento(candado_id, codigo_evento, lat=None, lon=None):
     if not tipo.data:
         return
     t = tipo.data[0]
+
+    # DEDUP: para no saturar el panel, si ya existe una alarma del MISMO tipo
+    # SIN ATENDER para este candado en los ultimos DEDUP_ALARMA_MIN minutos,
+    # no se crea otra (la alerta ya llego; se evita repetirla). Al atenderla,
+    # una nueva ocurrencia si vuelve a registrarse.
+    DEDUP_ALARMA_MIN = 10
+    if t.get("es_alarma"):
+        try:
+            from datetime import datetime, timezone, timedelta
+            limite = (datetime.now(timezone.utc) - timedelta(minutes=DEDUP_ALARMA_MIN)).isoformat()
+            dup = (
+                supabase.table("alarmas")
+                .select("id, eventos!inner(candado_id, tipo_evento_id, ocurrido_en)")
+                .eq("atendida", False)
+                .eq("eventos.candado_id", candado_id)
+                .eq("eventos.tipo_evento_id", t["id"])
+                .gte("eventos.ocurrido_en", limite)
+                .limit(1)
+                .execute()
+            )
+            if dup.data:
+                return   # ya hay una alarma igual sin atender: no duplicar
+        except Exception:
+            pass   # si la consulta falla, se continua y se crea el evento igual
+
     fila = {"candado_id": candado_id, "tipo_evento_id": t["id"]}
     # Guardar coordenadas en el evento: sirven para marcar la ruta como peligrosa
     # (marcado automatico) en el punto exacto donde salto la alarma.

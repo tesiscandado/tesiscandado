@@ -712,9 +712,16 @@ void setup() {
   inicioVentana = millis();
   ultimoPost = millis() - INTERVALO_POST;
 
-  // Reportar fallos de hardware detectados al arranque
-  if (falloRFID) reportar(0, 1, "RFID no responde");
-  if (falloMPU)  reportar(0, 2, "ADXL345 no responde");
+  // Reportar fallos de hardware detectados al arranque. La deduplicacion se
+  // hace en el backend: si ya hay una alerta igual sin atender, no la repite.
+  if (falloRFID) {
+    Serial.println("FALLO RC522 detectado al arranque");
+    reportar(0, 1, "RFID no responde");
+  }
+  if (falloMPU) {
+    Serial.println("FALLO ADXL345 detectado al arranque");
+    reportar(0, 2, "ADXL345 no responde");
+  }
 
   Serial.println("Sistema listo (GPRS)");
 }
