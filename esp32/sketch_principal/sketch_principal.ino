@@ -483,18 +483,17 @@ void actualizarGPS() {
   }
 }
 
-// Encender/apagar el GPS segun lo ordene la pagina web (via TalkBack)
+// Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido;
+// esta funcion ya no lo apaga, solo deja constancia del cambio de ruta.
 void aplicarEstadoGPS(bool activar) {
-  if (activar == gpsActivo) return;   // sin cambio
-  gpsActivo = activar;
-  if (activar) {
-    modem.enableGPS();
-    Serial.println(">>> RUTA INICIADA: GPS encendido (reporta posicion cada 3 min)");
-  } else {
-    modem.disableGPS();
-    ultLat = 0; ultLon = 0;   // no reportar coordenadas viejas con el GPS apagado
-    Serial.println(">>> RUTA DETENIDA: GPS apagado (ahorro de bateria)");
-  }
+  static bool primera = true;
+  if (!primera && activar == gpsActivo) return;   // sin cambio
+  primera = false;
+  // Asegurar que el GPS este encendido (por si un reinicio lo dejo apagado)
+  modem.enableGPS();
+  gpsActivo = true;   // el GPS permanece activo en todo momento
+  Serial.println(activar ? ">>> RUTA INICIADA (GPS ya encendido)"
+                         : ">>> RUTA DETENIDA (el GPS sigue encendido)");
 }
 
 // -------------------------
@@ -552,11 +551,7 @@ void capturarUbicacionOnDemand() {
     Serial.println("    Causa tipica: la antena GPS necesita VISTA AL CIELO (no funciona bien bajo techo).");
   }
 
-  // Apagar GPS para ahorrar bateria (solo si NO hay una ruta activa usandolo)
-  if (!gpsActivo) {
-    modem.disableGPS();
-    Serial.println("GPS apagado (ahorro de bateria)");
-  }
+  // El GPS queda ENCENDIDO (estado normal permanente); no se apaga.
   Serial.println("========================================\n");
 }
 
@@ -696,10 +691,12 @@ void setup() {
     delay(5000);
   }
   Serial.println(modem.isGprsConnected() ? "OK" : "FALLO");
-  // GPS APAGADO al arrancar (ahorro de bateria). Solo se enciende cuando el
-  // admin inicia una ruta en la pagina web (llega GPS:1 por el TalkBack;
-  // si el candado se reinicia en plena ruta, el proximo sync lo reactiva).
-  modem.disableGPS();
+  // GPS SIEMPRE ENCENDIDO: un arranque en frio necesita minutos de recepcion
+  // continua para fijar satelites. Al dejarlo prendido acumula ese tiempo y
+  // el heartbeat reporta la posicion en cuanto consigue fix.
+  modem.enableGPS();
+  gpsActivo = true;
+  Serial.println("GPS encendido de forma permanente (buscando satelites en segundo plano)");
 
   // Abrir bearer GPRS para el motor HTTP nativo del SIM808
   enviarAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
@@ -939,9 +936,9 @@ void loop() {
     sincronizarTokens();
   }
 
-  // ===== TELEMETRIA periodica (bateria; GPS solo con ruta activa) =====
+  // ===== TELEMETRIA periodica (bateria + GPS; el GPS esta siempre encendido) =====
   if (millis() - ultimoPost >= INTERVALO_POST) {
-    if (gpsActivo) actualizarGPS();   // posicion solo durante una ruta
+    actualizarGPS();   // el GPS esta prendido: reporta posicion apenas haya fix
     ultBat = modem.getBattPercent();
     postThingSpeak(0, saludHW, "heartbeat");
   }
