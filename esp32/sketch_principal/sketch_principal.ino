@@ -503,35 +503,46 @@ void aplicarEstadoGPS(bool activar) {
 // ThingSpeak. Luego apaga el GPS (salvo que haya una ruta activa usandolo).
 // -------------------------
 void capturarUbicacionOnDemand() {
-  Serial.println("--- Captura ON-DEMAND de ubicacion (comando LOC) ---");
+  Serial.println("\n========================================");
+  Serial.println(">>> CAPTURA ON-DEMAND DE UBICACION (boton Localizar)");
+  Serial.println("Encendiendo GPS y buscando senal...");
+  Serial.println("========================================");
 
-  // Encender GPS
   modem.enableGPS();
   unsigned long t = millis();
   float lat = 0, lon = 0;
+  int intento = 0;
 
-  // Esperar hasta 60s a que el GPS obtenga una fix (usualmente 10-20s en exterior)
-  while (millis() - t < 60000) {
-    float tmp_lat = 0, tmp_lon = 0;
-    if (modem.getGPS(&tmp_lat, &tmp_lon)) {
+  // Esperar hasta 90s a que el GPS obtenga fix. Se imprime el progreso
+  // (satelites visibles/usados) para ver si el modulo esta captando senal.
+  while (millis() - t < 90000) {
+    intento++;
+    float tmp_lat = 0, tmp_lon = 0, sp = 0, al = 0;
+    int vs = 0, us = 0;
+    bool ok = modem.getGPS(&tmp_lat, &tmp_lon, &sp, &al, &vs, &us);
+    Serial.printf("[GPS intento %d | %lus] satelites vistos=%d usados=%d  lat=%.6f lon=%.6f\n",
+      intento, (millis() - t) / 1000, vs, us, tmp_lat, tmp_lon);
+    if (ok && tmp_lat != 0 && tmp_lon != 0) {
       lat = tmp_lat; lon = tmp_lon;
-      if (lat != 0 && lon != 0) {
-        Serial.printf("GPS fix obtenido: %.6f, %.6f (tras %lums)\n", lat, lon, millis() - t);
-        break;
-      }
+      Serial.printf(">>> FIX GPS OBTENIDO: %.6f, %.6f (tras %lus, %d satelites)\n",
+        lat, lon, (millis() - t) / 1000, us);
+      break;
     }
-    delay(2000);
+    delay(3000);
   }
 
   // Actualizar variables globales y reportar a ThingSpeak
   if (lat != 0 && lon != 0) {
     ultLat = lat; ultLon = lon;
+    Serial.printf(">>> ENVIANDO coordenadas a ThingSpeak: lat=%.6f lon=%.6f\n", lat, lon);
     // Respetar el limite de ThingSpeak (1 post cada 15s) para no perder el envio
     while (millis() - ultimoPost < MIN_ENTRE_POST) delay(500);
-    postThingSpeak(0, saludHW, "Ubicacion on-demand");   // evento 0, solo GPS
-    Serial.printf("Ubicacion reportada a ThingSpeak: %.6f, %.6f\n", lat, lon);
+    bool ok = postThingSpeak(0, saludHW, "Ubicacion on-demand");   // evento 0, solo GPS
+    Serial.printf(">>> Resultado del envio: %s (lat=%.6f, lon=%.6f)\n",
+      ok ? "OK (HTTP 200)" : "FALLO", lat, lon);
   } else {
-    Serial.println("No se pudo obtener fix GPS en el tiempo limite");
+    Serial.println(">>> NO SE OBTUVO FIX GPS en 90s.");
+    Serial.println("    Causa tipica: la antena GPS necesita VISTA AL CIELO (no funciona bien bajo techo).");
   }
 
   // Apagar GPS para ahorrar bateria (solo si NO hay una ruta activa usandolo)
@@ -539,6 +550,7 @@ void capturarUbicacionOnDemand() {
     modem.disableGPS();
     Serial.println("GPS apagado (ahorro de bateria)");
   }
+  Serial.println("========================================\n");
 }
 
 // -------------------------
@@ -612,14 +624,21 @@ void sincronizarTokens() {
     ini = coma + 1;
   }
   nTokensValidos = n;
-  Serial.printf("Tokens sincronizados: %d\n", nTokensValidos);
+  Serial.printf("Tokens sincronizados: %d  | GPS ruta=%s | %s\n",
+    nTokensValidos, (gpsVisto && gpsValor) ? "ON" : "OFF",
+    locVisto.length() > 0 ? locVisto.c_str() : "sin LOC");
   if (gpsVisto) aplicarEstadoGPS(gpsValor);
 
   if (locVisto.length() > 0 && locVisto != ultimoLoc) {
     ultimoLoc = locVisto;
     // En el primer sync (arranque) solo se toma nota: un LOC viejo que quedo
     // en el TalkBack no debe disparar una captura cada vez que se reinicia.
-    if (!primeraSync) capturarUbicacionOnDemand();
+    if (!primeraSync) {
+      Serial.printf(">>> NUEVA solicitud de ubicacion recibida (%s)\n", locVisto.c_str());
+      capturarUbicacionOnDemand();
+    } else {
+      Serial.println("(LOC en cola ignorado en el primer sync tras el arranque)");
+    }
   }
   primeraSync = false;
 }
@@ -705,14 +724,16 @@ void setup() {
 // -------------------------
 void loop() {
 
-  // ===== DIAGNOSTICO cada 5s: touch, GPRS, GPS y reed =====
+  // ===== DIAGNOSTICO cada 5s: touch, GPRS, GPS, reed y salud de sensores =====
   static unsigned long ultLog = 0;
   if (millis() - ultLog > 5000) {
     ultLog = millis();
-    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Reed=%s\n",
+    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Reed=%s  Acel=%s  RFID=%s\n",
       digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO",
       gpsActivo ? "ON" : "OFF",
-      digitalRead(REED_PIN) == LOW ? "cerrado" : "ABIERTO");
+      digitalRead(REED_PIN) == LOW ? "cerrado" : "ABIERTO",
+      falloMPU ? "FALLO" : "ok",
+      falloRFID ? "FALLO" : "ok");
   }
 
   // ===== RFID (solo cuando se toca el TTP223 - AHORRO) =====
@@ -825,7 +846,11 @@ void loop() {
       } else if (inten > UMBRAL_GOLPE) {
         contadorEventos++; mpuAlerta = true; tiempoMpuAlerta = ahora;
         // Similar para golpes (pero no se reporta, solo se cuenta para forcejeo)
-        Serial.println("Golpe detectado (sin reporte individual)");
+        Serial.printf("Golpe detectado (intensidad=%ld, sin reporte individual)\n", inten);
+      } else if (inten > 120) {
+        // Movimiento leve: NO es alerta, solo para verificar en pruebas que el
+        // acelerometro esta leyendo (mueve el candado y deberias ver esto).
+        Serial.printf("Movimiento leve (intensidad=%ld)\n", inten);
       }
       axAnt=ax; ayAnt=ay; azAnt=az;
     }
