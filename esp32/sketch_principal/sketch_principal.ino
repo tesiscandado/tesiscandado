@@ -508,7 +508,14 @@ void capturarUbicacionOnDemand() {
   Serial.println("Encendiendo GPS y buscando senal...");
   Serial.println("========================================");
 
-  modem.enableGPS();
+  // Encender el GPS y CONFIRMAR que el SIM808 acepto el comando de encendido.
+  bool gpsOn = modem.enableGPS();
+  Serial.printf("modem.enableGPS() -> %s\n",
+    gpsOn ? "OK (el SIM808 encendio el GPS)" : "FALLO (el SIM808 NO encendio el GPS)");
+  // Verificar el estado real de alimentacion del GPS (AT+CGNSPWR?)
+  Serial.print("Estado GPS (AT+CGNSPWR?): ");
+  Serial.println(enviarAT("AT+CGNSPWR?", 2000));
+  delay(2000);   // el receptor GPS tarda un par de segundos en arrancar
   unsigned long t = millis();
   float lat = 0, lon = 0;
   int intento = 0;
