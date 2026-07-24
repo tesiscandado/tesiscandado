@@ -242,14 +242,14 @@ export default function Candados() {
                   <p className="t-mut text-xs mt-1">Última conexión: {c.ultima_conexion ? new Date(c.ultima_conexion).toLocaleString() : 'Nunca'}</p>
                   {c.latitud != null && c.longitud != null && (
                     <div className="mt-2 flex flex-col gap-0.5">
-                      <p className="text-xs font-semibold" style={{ color: c.en_linea ? 'var(--accent)' : 'var(--muted)' }}>
-                        📍 {c.en_linea ? 'Ubicación actual' : 'Última ubicación registrada'}
+                      <p className="text-xs font-semibold t-mut">
+                        📍 Última ubicación conocida
                       </p>
                       <button onClick={() => abrirMapa(c)} className="text-xs font-mono t-pri text-left hover:underline">
                         {Number(c.latitud).toFixed(6)}, {Number(c.longitud).toFixed(6)}
                       </button>
                       <p className="text-xs t-mut">
-                        {c.en_linea ? 'Se refresca cada 2 min · toca “Localizar” para GPS al instante' : 'El candado está desconectado'}
+                        Toca “Localizar” para pedir la posición actual del GPS
                       </p>
                     </div>
                   )}

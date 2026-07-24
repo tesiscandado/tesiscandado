@@ -70,18 +70,31 @@ def _crear_evento(candado_id, codigo_evento, lat=None, lon=None):
         try:
             from datetime import datetime, timezone, timedelta
             limite = (datetime.now(timezone.utc) - timedelta(minutes=DEDUP_ALARMA_MIN)).isoformat()
-            dup = (
-                supabase.table("alarmas")
-                .select("id, eventos!inner(candado_id, tipo_evento_id, ocurrido_en)")
-                .eq("atendida", False)
-                .eq("eventos.candado_id", candado_id)
-                .eq("eventos.tipo_evento_id", t["id"])
-                .gte("eventos.ocurrido_en", limite)
-                .limit(1)
+            # 1) eventos RECIENTES (ultimos 10 min) de este tipo para este candado.
+            #    El filtro de tiempo va sobre la tabla base 'eventos' (fiable),
+            #    no sobre un recurso embebido (que PostgREST podia ignorar y
+            #    hacer que alarmas VIEJAS bloquearan las nuevas).
+            recientes = (
+                supabase.table("eventos")
+                .select("id")
+                .eq("candado_id", candado_id)
+                .eq("tipo_evento_id", t["id"])
+                .gte("ocurrido_en", limite)
                 .execute()
             )
-            if dup.data:
-                return   # ya hay una alarma igual sin atender: no duplicar
+            ids_recientes = [e["id"] for e in (recientes.data or [])]
+            # 2) ¿alguno de esos eventos recientes ya tiene una alarma sin atender?
+            if ids_recientes:
+                dup = (
+                    supabase.table("alarmas")
+                    .select("id")
+                    .in_("evento_id", ids_recientes)
+                    .eq("atendida", False)
+                    .limit(1)
+                    .execute()
+                )
+                if dup.data:
+                    return   # ya hay una alarma igual RECIENTE sin atender: no duplicar
         except Exception:
             pass   # si la consulta falla, se continua y se crea el evento igual
 
