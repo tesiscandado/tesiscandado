@@ -560,6 +560,22 @@ bool leerUbicacionGSM() {
   return true;
 }
 
+// -------------------------
+// UBICACION REAL PARA UN EVENTO DE ACCESO (concedido o denegado)
+// -------------------------
+// El heartbeat normal usa ultLat/ultLon "de fondo" (refrescado cada 5s por GPS o
+// cada 60s por GSM), que para un candado FIJO es la posicion real igual, pero
+// puede tener hasta 60s de antiguedad. Un acceso (RFID) es el momento MAS
+// importante de registrar: aqui se PIDE la ubicacion en el instante, sin esperar
+// al proximo poll de fondo. Prioridad: GPS real (rapido, ~1s) y solo si no hay
+// fix, respaldo por GSM (mas lento, hasta ~10s) para no dejar el evento sin
+// coordenadas. Se llama DESPUES de abrir el solenoide en el caso concedido, para
+// no retrasar la apertura de la puerta.
+void capturarUbicacionParaAcceso() {
+  leerGPS();
+  if (!tieneFixGPS) leerUbicacionGSM();
+}
+
 // Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido; esta
 // funcion no lo apaga: solo marca si hay una ruta en curso para reportar la
 // posicion cada minuto (rutaEnCurso) en vez de cada heartbeat.
@@ -880,15 +896,18 @@ void loop() {
         // el token estuviera en la ultima lista conocida (podria estar revocado).
         beep(150); delay(80); beep(150); delay(80); beep(150); delay(80); beep(150);   // 4 beeps: sin sync
         Serial.println("ACCESO DENEGADO (lista de tokens sin sincronizar; fail-closed)");
+        capturarUbicacionParaAcceso();   // ubicacion REAL del momento, no la cacheada
         reportar(2, saludHW, "Acceso denegado (sin sincronizacion)");   // evento 2
       } else if (token.length() >= 4 && tokenAutorizado(token)) {
         beep(180);   // acceso concedido: 1 beep corto
         Serial.println("ACCESO CONCEDIDO");
+        abrirSolenoide();                 // abrir primero: no retrasar al usuario en la puerta
+        capturarUbicacionParaAcceso();    // ubicacion REAL del momento, no la cacheada
         reportar(1, saludHW, "Acceso concedido");   // evento 1
-        abrirSolenoide();
       } else {
         beep(150); delay(120); beep(150); delay(120); beep(150);   // denegado: 3 beeps
         Serial.println("ACCESO DENEGADO");
+        capturarUbicacionParaAcceso();   // ubicacion REAL del momento, no la cacheada
         reportar(2, saludHW, "Acceso denegado");     // evento 2
       }
       rfid.PICC_HaltA();
