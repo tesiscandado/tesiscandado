@@ -213,7 +213,9 @@ int16_t axAnt, ayAnt, azAnt;
 // Umbrales recalibrados para ADXL345 (rango ~ -256..256 en reposo, 1g).
 // AJUSTA estos valores viendo el Monitor Serial: en reposo la diferencia
 // entre lecturas deberia ser baja (decenas); un golpe fuerte sube mucho mas.
-const long UMBRAL_GOLPE = 800, UMBRAL_IMPACTO = 1600;
+// UMBRAL_IMPACTO bajado de 1600 a 900 (calibrado en pruebas: un golpe fuerte
+// real llegaba a 1573 y quedaba SIN reportar por no cruzar el umbral viejo).
+const long UMBRAL_GOLPE = 800, UMBRAL_IMPACTO = 900;
 
 unsigned long inicioVentana = 0;
 int contadorEventos = 0;
