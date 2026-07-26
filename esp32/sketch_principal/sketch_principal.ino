@@ -561,41 +561,45 @@ bool leerUbicacionGSM() {
 }
 
 // -------------------------
-// UBICACION REAL PARA UN EVENTO DE ACCESO (concedido o denegado)
+// UBICACION REAL PARA UN EVENTO DE ACCESO (concedido o denegado) — SIN BLOQUEAR
 // -------------------------
 // El heartbeat normal usa ultLat/ultLon "de fondo" (refrescado cada 5s por GPS o
 // cada 60s por GSM), que para un candado FIJO es la posicion real igual, pero
 // puede tener hasta 60s de antiguedad. Un acceso (RFID) es el momento MAS
-// importante de registrar: aqui se ESPERA, con reintentos, a conseguir una
-// ubicacion REAL antes de reportar el evento (no se conforma con el primer
-// intento fallido). Prioridad: GPS real y, si no hay fix, respaldo por GSM.
+// importante de registrar, asi que el evento NO se envia hasta conseguir una
+// ubicacion real (GPS o, si no hay fix, GSM) — SIN tope de tiempo: espera lo
+// que haga falta.
 //
-// El tope ESPERA_MAX_UBICACION_MS evita que el candado quede colgado para
-// siempre si no hay forma de ubicarse (GPRS caido y GPS sin senal): eso
-// bloquearia RFID, reed y alarmas mientras dura la espera. Pasado el tope, se
-// reporta el evento con lo que se haya conseguido (puede quedar sin coords).
-// Se llama DESPUES de abrir el solenoide en el caso concedido, para no
-// retrasar la apertura de la puerta al usuario.
-const unsigned long ESPERA_MAX_UBICACION_MS = 30000;   // tope: 30s
+// Para que esa espera no congele el candado (RFID, reed, alarmas, buzzer
+// dejarian de atenderse), NO se hace con un bucle bloqueante: se deja el
+// evento "en cola" (accesoEsperandoUbicacion) y el propio loop() reintenta la
+// ubicacion cada pocos segundos como una tarea mas — igual que ya hace con el
+// sync de tokens o el poll de GPS de fondo. Entre cada intento, el resto del
+// candado sigue funcionando con normalidad. En cuanto se consigue la
+// ubicacion, se reporta el evento (ver el bloque correspondiente en loop()).
+bool   accesoEsperandoUbicacion = false;
+int    accesoEventoPend = -1;
+int    accesoSaludPend  = 0;
+String accesoStatusPend = "";
+unsigned long ultimoIntentoUbicacionAcceso = 0;
+const unsigned long INTERVALO_REINTENTO_UBICACION_ACCESO = 3000;   // entre intentos
 
-void capturarUbicacionParaAcceso() {
-  unsigned long inicio = millis();
-  bool ok = leerGPS();
-  while (!ok && millis() - inicio < ESPERA_MAX_UBICACION_MS) {
-    ok = leerUbicacionGSM();
-    if (ok) break;
-    unsigned long transcurrido = millis() - inicio;
-    if (transcurrido >= ESPERA_MAX_UBICACION_MS) break;
-    unsigned long pausa = ESPERA_MAX_UBICACION_MS - transcurrido;
-    delay(pausa < 2000 ? pausa : 2000);
-    ok = leerGPS();   // reintenta tambien el GPS por si consigue fix mientras tanto
+// Se llama al conceder/denegar un acceso. Si ya hay ubicacion a mano (fix GPS
+// reciente), reporta de una; si no, encola para reintentar en segundo plano.
+void reportarAccesoConUbicacion(int evento, int salud, const char* status) {
+  if (leerGPS()) {
+    Serial.printf(">>> Ubicacion del acceso (GPS): %.6f, %.6f\n", ultLat, ultLon);
+    reportar(evento, salud, status);
+    return;
   }
-  if (ok) {
-    Serial.printf(">>> Ubicacion del acceso conseguida (%s): %.6f, %.6f\n",
-      ubicacionAprox ? "GSM aprox" : "GPS", ultLat, ultLon);
-  } else {
-    Serial.println(">>> Ubicacion del acceso: no se consiguio a tiempo (30s), se reporta sin coordenadas");
-  }
+  accesoEsperandoUbicacion    = true;
+  accesoEventoPend            = evento;
+  accesoSaludPend             = salud;
+  accesoStatusPend            = String(status);
+  // Forzar que el primer reintento ocurra en el proximo paso del loop, no
+  // esperar el intervalo completo.
+  ultimoIntentoUbicacionAcceso = millis() - INTERVALO_REINTENTO_UBICACION_ACCESO;
+  Serial.println(">>> Acceso en espera de ubicacion real (se reportara en cuanto se consiga; el candado sigue funcionando mientras tanto)");
 }
 
 // Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido; esta
@@ -918,19 +922,16 @@ void loop() {
         // el token estuviera en la ultima lista conocida (podria estar revocado).
         beep(150); delay(80); beep(150); delay(80); beep(150); delay(80); beep(150);   // 4 beeps: sin sync
         Serial.println("ACCESO DENEGADO (lista de tokens sin sincronizar; fail-closed)");
-        capturarUbicacionParaAcceso();   // ubicacion REAL del momento, no la cacheada
-        reportar(2, saludHW, "Acceso denegado (sin sincronizacion)");   // evento 2
+        reportarAccesoConUbicacion(2, saludHW, "Acceso denegado (sin sincronizacion)");   // evento 2
       } else if (token.length() >= 4 && tokenAutorizado(token)) {
         beep(180);   // acceso concedido: 1 beep corto
         Serial.println("ACCESO CONCEDIDO");
         abrirSolenoide();                 // abrir primero: no retrasar al usuario en la puerta
-        capturarUbicacionParaAcceso();    // ubicacion REAL del momento, no la cacheada
-        reportar(1, saludHW, "Acceso concedido");   // evento 1
+        reportarAccesoConUbicacion(1, saludHW, "Acceso concedido");   // evento 1
       } else {
         beep(150); delay(120); beep(150); delay(120); beep(150);   // denegado: 3 beeps
         Serial.println("ACCESO DENEGADO");
-        capturarUbicacionParaAcceso();   // ubicacion REAL del momento, no la cacheada
-        reportar(2, saludHW, "Acceso denegado");     // evento 2
+        reportarAccesoConUbicacion(2, saludHW, "Acceso denegado");     // evento 2
       }
       rfid.PICC_HaltA();
       rfid.PCD_StopCrypto1();
@@ -1053,6 +1054,25 @@ void loop() {
     ultimoIntentoPend = millis();
     if (postThingSpeak(eventoPendiente, saludPendiente, statusPendiente.c_str())) {
       eventoPendiente = -1;
+    }
+  }
+
+  // ===== ACCESO ESPERANDO UBICACION: reintenta EN SEGUNDO PLANO, SIN bloquear
+  //       el candado (RFID/reed/alarmas/buzzer siguen atendiendose en cada
+  //       vuelta del loop mientras tanto). Sin tope de tiempo: se reporta el
+  //       evento en cuanto se consigue una ubicacion real (GPS o GSM). =====
+  if (accesoEsperandoUbicacion
+      && millis() - ultimoIntentoUbicacionAcceso >= INTERVALO_REINTENTO_UBICACION_ACCESO) {
+    ultimoIntentoUbicacionAcceso = millis();
+    bool ok = leerGPS();
+    if (!ok) ok = leerUbicacionGSM();
+    if (ok) {
+      Serial.printf(">>> Ubicacion del acceso conseguida (%s): %.6f, %.6f -> reportando\n",
+        ubicacionAprox ? "GSM aprox" : "GPS", ultLat, ultLon);
+      reportar(accesoEventoPend, accesoSaludPend, accesoStatusPend.c_str());
+      accesoEsperandoUbicacion = false;
+    } else {
+      Serial.println(">>> Acceso aun sin ubicacion, se reintenta mas adelante (el candado sigue funcionando con normalidad)");
     }
   }
 
