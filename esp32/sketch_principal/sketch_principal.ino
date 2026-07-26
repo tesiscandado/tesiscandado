@@ -251,6 +251,11 @@ bool solenoideAbierto = false;
 bool gpsActivo = false;
 bool tieneFixGPS = false;
 
+// La ultima posicion (ultLat/ultLon) proviene de GSM (celdas, aproximada) en vez
+// de un fix real de satelites. Se usa como respaldo en interiores para que el
+// mapa muestre algo; el GPS real tiene prioridad apenas consigue fix.
+bool ubicacionAprox = false;
+
 // Ruta en curso (orden GPS:1 desde la web). El GPS sigue SIEMPRE encendido; esto
 // solo hace que el candado reporte su posicion mas seguido (cada minuto) mientras
 // dure la ruta, para que el mapa se dibuje en "tiempo real". Fuera de ruta, el
@@ -513,6 +518,7 @@ bool leerGPS() {
   bool ok = modem.getGPS(&lat, &lon, &sp, &al, &vs, &us) && lat != 0 && lon != 0;
   if (ok) {
     ultLat = lat; ultLon = lon;
+    ubicacionAprox = false;   // fix real de satelites: posicion precisa
     if (!tieneFixGPS) {
       tieneFixGPS = true;
       Serial.printf(">>> GPS FIX CONSEGUIDO: %.6f, %.6f (%d satelites)\n", lat, lon, us);
@@ -522,6 +528,36 @@ bool leerGPS() {
     Serial.println("GPS perdio el fix (buscando de nuevo en segundo plano)");
   }
   return ok;
+}
+
+// -------------------------
+// UBICACION APROXIMADA POR GSM (celdas) — funciona SIN fix de satelites (interiores)
+// -------------------------
+// El SIM808 estima lat/lon por las torres celulares (AT+CIPGSMLOC). Es MENOS
+// precisa que el GPS (cientos de metros a km) pero permite que el mapa muestre
+// algo cuando el GPS aun no fija. Solo se usa como RESPALDO: apenas el GPS
+// consigue fix real, leerGPS() vuelve a mandar (ubicacionAprox = false).
+// Respuesta:  +CIPGSMLOC: <code>,<lon>,<lat>,<fecha>,<hora>   (code 0 = OK)
+//             OJO: el orden es LONGITUD y luego LATITUD.
+bool leerUbicacionGSM() {
+  if (!modem.isGprsConnected()) return false;
+  // enviarAT retorna apenas ve "+CIPGSMLOC:" (normalmente 2-5s); el timeout de
+  // 10s es solo el tope si la red no responde, para no bloquear mucho el loop.
+  String r = enviarAT("AT+CIPGSMLOC=1,1", 10000, "+CIPGSMLOC:");
+  int idx = r.indexOf("+CIPGSMLOC:");
+  if (idx < 0) return false;
+  int c1 = r.indexOf(',', idx);
+  if (c1 < 0) return false;
+  if (r.substring(idx + 11, c1).toInt() != 0) return false;   // code != 0: sin ubicacion
+  int c2 = r.indexOf(',', c1 + 1);
+  int c3 = r.indexOf(',', c2 + 1);
+  if (c2 < 0 || c3 < 0) return false;
+  float lon = r.substring(c1 + 1, c2).toFloat();   // primero longitud
+  float lat = r.substring(c2 + 1, c3).toFloat();   // luego latitud
+  if (lat == 0 || lon == 0) return false;
+  ultLat = lat; ultLon = lon;
+  ubicacionAprox = true;
+  return true;
 }
 
 // Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido; esta
@@ -547,16 +583,17 @@ void capturarUbicacionOnDemand() {
   modem.enableGPS();          // por si acaso quedo apagado tras un reinicio
   gpsActivo = true;
   leerGPS();                  // intento rapido de refrescar la posicion
-  if (tieneFixGPS && ultLat != 0 && ultLon != 0) {
+  // Si el GPS no fija, intentar de una la ubicacion aproximada por GSM (interiores)
+  if (!tieneFixGPS) leerUbicacionGSM();
+  if (ultLat != 0 && ultLon != 0) {
     locPendiente = false;
     while (millis() - ultimoPost < MIN_ENTRE_POST) delay(500);
-    bool ok = postThingSpeak(0, saludHW, "Ubicacion on-demand");
-    Serial.printf(">>> Localizar: posicion enviada %.6f, %.6f (%s)\n",
-      ultLat, ultLon, ok ? "HTTP 200" : "FALLO");
+    bool ok = postThingSpeak(0, saludHW, ubicacionAprox ? "Ubicacion on-demand (GSM aprox)" : "Ubicacion on-demand");
+    Serial.printf(">>> Localizar: posicion enviada %.6f, %.6f (%s%s)\n",
+      ultLat, ultLon, ubicacionAprox ? "GSM aprox, " : "", ok ? "HTTP 200" : "FALLO");
   } else {
-    locPendiente = true;       // el poll de fondo la reporta apenas haya fix
-    Serial.println(">>> Localizar: el GPS aun no tiene fix (buscando en segundo plano).");
-    Serial.println("    Se reportara automaticamente en cuanto consiga senal (antena con vista al cielo).");
+    locPendiente = true;       // el poll de fondo la reporta apenas haya posicion
+    Serial.println(">>> Localizar: sin fix GPS ni ubicacion GSM todavia (se reintenta en segundo plano).");
   }
 }
 
@@ -761,14 +798,22 @@ void loop() {
   if (millis() - ultGpsPoll > 5000) {
     ultGpsPoll = millis();
     leerGPS();
-    // Si habia un "Localizar" pendiente (sin fix en su momento) y ya hay fix,
-    // reportar apenas se pueda (respeta el limite de ThingSpeak de 1/15s;
-    // si esta dentro de esa ventana, se reintenta en el siguiente poll).
-    if (locPendiente && tieneFixGPS && millis() - ultimoPost >= MIN_ENTRE_POST) {
+    // RESPALDO EN INTERIORES: si el GPS aun no fija, estimar la posicion por
+    // celdas GSM (cada 30s, no es gratis) para que el mapa muestre algo. Apenas
+    // el GPS consiga fix real, leerGPS() vuelve a mandar (ubicacion precisa).
+    static unsigned long ultGsmLoc = 0;
+    if (!tieneFixGPS && millis() - ultGsmLoc > 60000) {
+      ultGsmLoc = millis();
+      if (leerUbicacionGSM())
+        Serial.printf(">>> Ubicacion aproximada por GSM (sin fix GPS): %.6f, %.6f\n", ultLat, ultLon);
+    }
+    // Si habia un "Localizar" pendiente y ya hay posicion (fix real O respaldo
+    // GSM), reportar apenas se pueda (respeta el limite de ThingSpeak de 1/15s).
+    if (locPendiente && (ultLat != 0 && ultLon != 0) && millis() - ultimoPost >= MIN_ENTRE_POST) {
       locPendiente = false;
-      bool ok = postThingSpeak(0, saludHW, "Ubicacion on-demand");
-      Serial.printf(">>> Localizar (fix recien conseguido): posicion enviada %.6f, %.6f (%s)\n",
-        ultLat, ultLon, ok ? "HTTP 200" : "FALLO");
+      bool ok = postThingSpeak(0, saludHW, ubicacionAprox ? "Ubicacion on-demand (GSM aprox)" : "Ubicacion on-demand");
+      Serial.printf(">>> Localizar: posicion enviada %.6f, %.6f (%s%s)\n",
+        ultLat, ultLon, ubicacionAprox ? "GSM aprox, " : "", ok ? "HTTP 200" : "FALLO");
     }
   }
 
@@ -776,9 +821,10 @@ void loop() {
   static unsigned long ultLog = 0;
   if (millis() - ultLog > 5000) {
     ultLog = millis();
-    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Reed=%s  Acel=%s  RFID=%s\n",
+    Serial.printf("[STATUS] Touch=%d  GPRS=%s  GPS=%s  Pos=%s  Reed=%s  Acel=%s  RFID=%s\n",
       digitalRead(TOUCH_PIN), modem.isGprsConnected() ? "OK" : "NO",
       tieneFixGPS ? "FIX" : "buscando",
+      (ultLat != 0 && ultLon != 0) ? (ubicacionAprox ? "GSM-aprox" : "GPS") : "sin",
       digitalRead(REED_PIN) == LOW ? "cerrado" : "ABIERTO",
       falloMPU ? "FALLO" : "ok",
       falloRFID ? "FALLO" : "ok");
