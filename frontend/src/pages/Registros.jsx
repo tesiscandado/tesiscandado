@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
 import BoxLista from '../components/BoxLista'
+import { MapaModal } from '../components/Modal'
 
 const tabCls = (active) =>
   `px-4 py-2 text-sm font-semibold rounded-lg transition ${active ? 'btn-accent' : 'text-gray-400 hover-pri'}`
@@ -13,6 +14,7 @@ export default function Registros() {
   const [alertas, setAlertas] = useState([])
   const [sincros, setSincros] = useState([])
   const [loading, setLoading] = useState(false)
+  const [mapa, setMapa] = useState(null)   // evento de acceso seleccionado para ver su ubicación
 
   useEffect(() => { cargar(tab) }, [tab])
 
@@ -57,28 +59,52 @@ export default function Registros() {
         <div className="grid lg:grid-cols-2 gap-5">
           <BoxLista titulo="Accesos autorizados" icon="✅" color="#10b981" items={autorizados}
             vacio="Sin accesos autorizados"
-            render={e => (
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="t-pri font-medium text-sm">{e.candados?.descripcion}</p>
-                  <p className="t-mut text-xs">{e.usuarios?.nombre ?? 'Sin operador'} · {fecha(e.ocurrido_en)}</p>
+            render={e => {
+              const tieneUbicacion = e.latitud != null && e.longitud != null
+              return (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="t-pri font-medium text-sm">{e.candados?.descripcion}</p>
+                    <p className="t-mut text-xs">{e.usuarios?.nombre ?? 'Sin operador'} · {fecha(e.ocurrido_en)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {tieneUbicacion && (
+                      <button onClick={() => setMapa(e)}
+                        className="text-xs px-2.5 py-1 rounded-full font-semibold"
+                        style={{ background: 'rgba(59,130,246,.15)', color: '#60a5fa' }}>
+                        📍 Ubicación
+                      </button>
+                    )}
+                    <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                      style={{ background: 'rgba(16,185,129,.15)', color: '#34d399' }}>Autorizado</span>
+                  </div>
                 </div>
-                <span className="text-xs px-2 py-1 rounded-full font-semibold shrink-0"
-                  style={{ background: 'rgba(16,185,129,.15)', color: '#34d399' }}>Autorizado</span>
-              </div>
-            )} />
+              )
+            }} />
           <BoxLista titulo="Accesos denegados" icon="⛔" color="#f87171" items={denegados}
             vacio="Sin accesos denegados"
-            render={e => (
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="t-pri font-medium text-sm">{e.candados?.descripcion}</p>
-                  <p className="t-mut text-xs">{fecha(e.ocurrido_en)}</p>
+            render={e => {
+              const tieneUbicacion = e.latitud != null && e.longitud != null
+              return (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="t-pri font-medium text-sm">{e.candados?.descripcion}</p>
+                    <p className="t-mut text-xs">{fecha(e.ocurrido_en)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {tieneUbicacion && (
+                      <button onClick={() => setMapa(e)}
+                        className="text-xs px-2.5 py-1 rounded-full font-semibold"
+                        style={{ background: 'rgba(59,130,246,.15)', color: '#60a5fa' }}>
+                        📍 Ubicación
+                      </button>
+                    )}
+                    <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                      style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>Denegado</span>
+                  </div>
                 </div>
-                <span className="text-xs px-2 py-1 rounded-full font-semibold shrink-0"
-                  style={{ background: 'rgba(239,68,68,.15)', color: '#f87171' }}>Denegado</span>
-              </div>
-            )} />
+              )
+            }} />
         </div>
       )}
 
@@ -129,6 +155,12 @@ export default function Registros() {
             </div>
           )} />
       )}
+
+      <MapaModal open={!!mapa} onClose={() => setMapa(null)}
+        titulo={`Ubicación del acceso — ${mapa?.candados?.descripcion || ''}`}
+        subtitulo={mapa ? `📍 Posición del candado al momento del acceso · ${fecha(mapa.ocurrido_en)}` : ''}
+        lat={mapa?.latitud} lon={mapa?.longitud} en_linea
+        cargando={false} />
     </div>
   )
 }

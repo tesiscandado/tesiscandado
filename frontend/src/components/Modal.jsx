@@ -46,7 +46,7 @@ export function ConfirmModal({ open, title = 'Confirmar', mensaje, onConfirm, on
 }
 
 // Modal con mapa (OpenStreetMap, sin API key) y marcador en las coordenadas
-export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true, cargando = false }) {
+export function MapaModal({ open, onClose, titulo, subtitulo, lat, lon, en_linea = true, cargando = false }) {
   const tiene = lat != null && lon != null
   const delta = 0.005
   const bbox = tiene
@@ -69,6 +69,7 @@ export function MapaModal({ open, onClose, titulo, lat, lon, en_linea = true, ca
         </div>
       ) : tiene && en_linea ? (
         <div className="flex flex-col gap-3">
+          {subtitulo && <p className="t-mut text-xs -mt-1">{subtitulo}</p>}
           <div className="rounded-xl overflow-hidden border bd">
             <iframe
               title="mapa"
