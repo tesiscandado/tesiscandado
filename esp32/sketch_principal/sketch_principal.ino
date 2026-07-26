@@ -566,14 +566,36 @@ bool leerUbicacionGSM() {
 // El heartbeat normal usa ultLat/ultLon "de fondo" (refrescado cada 5s por GPS o
 // cada 60s por GSM), que para un candado FIJO es la posicion real igual, pero
 // puede tener hasta 60s de antiguedad. Un acceso (RFID) es el momento MAS
-// importante de registrar: aqui se PIDE la ubicacion en el instante, sin esperar
-// al proximo poll de fondo. Prioridad: GPS real (rapido, ~1s) y solo si no hay
-// fix, respaldo por GSM (mas lento, hasta ~10s) para no dejar el evento sin
-// coordenadas. Se llama DESPUES de abrir el solenoide en el caso concedido, para
-// no retrasar la apertura de la puerta.
+// importante de registrar: aqui se ESPERA, con reintentos, a conseguir una
+// ubicacion REAL antes de reportar el evento (no se conforma con el primer
+// intento fallido). Prioridad: GPS real y, si no hay fix, respaldo por GSM.
+//
+// El tope ESPERA_MAX_UBICACION_MS evita que el candado quede colgado para
+// siempre si no hay forma de ubicarse (GPRS caido y GPS sin senal): eso
+// bloquearia RFID, reed y alarmas mientras dura la espera. Pasado el tope, se
+// reporta el evento con lo que se haya conseguido (puede quedar sin coords).
+// Se llama DESPUES de abrir el solenoide en el caso concedido, para no
+// retrasar la apertura de la puerta al usuario.
+const unsigned long ESPERA_MAX_UBICACION_MS = 30000;   // tope: 30s
+
 void capturarUbicacionParaAcceso() {
-  leerGPS();
-  if (!tieneFixGPS) leerUbicacionGSM();
+  unsigned long inicio = millis();
+  bool ok = leerGPS();
+  while (!ok && millis() - inicio < ESPERA_MAX_UBICACION_MS) {
+    ok = leerUbicacionGSM();
+    if (ok) break;
+    unsigned long transcurrido = millis() - inicio;
+    if (transcurrido >= ESPERA_MAX_UBICACION_MS) break;
+    unsigned long pausa = ESPERA_MAX_UBICACION_MS - transcurrido;
+    delay(pausa < 2000 ? pausa : 2000);
+    ok = leerGPS();   // reintenta tambien el GPS por si consigue fix mientras tanto
+  }
+  if (ok) {
+    Serial.printf(">>> Ubicacion del acceso conseguida (%s): %.6f, %.6f\n",
+      ubicacionAprox ? "GSM aprox" : "GPS", ultLat, ultLon);
+  } else {
+    Serial.println(">>> Ubicacion del acceso: no se consiguio a tiempo (30s), se reporta sin coordenadas");
+  }
 }
 
 // Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido; esta
