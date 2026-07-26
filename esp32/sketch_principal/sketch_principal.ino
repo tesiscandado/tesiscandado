@@ -12,15 +12,17 @@
     10=reed 12=impacto 13=forcejeo 14=resuelta
   Codigos salud (field5):  0=ok 1=fallo_rfid 2=fallo_acel 3=fallo_solenoide
 
-  GPS BAJO DEMANDA (ahorro de bateria): el GPS arranca APAGADO. Cuando el
-  admin pone "Iniciar ruta" en la pagina web, el backend publica GPS:1 en el
-  TalkBack y el candado lo enciende (max 3 min); "Detener ruta" -> GPS:0.
-  El boton "Localizar" publica LOC:<nonce>: el candado enciende el GPS un
-  momento, reporta 1 posicion y lo vuelve a apagar.
+  GPS SIEMPRE ENCENDIDO en segundo plano (ya no se prioriza ahorro de bateria,
+  sino velocidad de respuesta). "Iniciar ruta"/"Detener ruta" ya no prenden ni
+  apagan el GPS: solo agrupan los puntos capturados en un recorrido con
+  nombre (GPS:1/GPS:0 se sigue publicando por compatibilidad, pero el
+  candado los ignora para efectos de encendido). El boton "Localizar" publica
+  LOC:<nonce>: si el GPS ya tiene fix lo reporta al instante; si no, lo hace
+  apenas consiga senal (bandera locPendiente).
 
   Libreria: TinyGSM (Library Manager).
   NOTA: la validacion del token RFID es LOCAL (offline): la lista de tokens
-        se descarga del TalkBack de ThingSpeak cada 3 min.
+        se descarga del TalkBack de ThingSpeak cada 20s.
 
   =====================================================================
   MAPA DE CONEXIONES (todo a GND comun)
@@ -117,7 +119,7 @@ const int MAX_REINTENTOS_APERTURA = 3;  // cuantos intentos antes de reportar fa
 // Pausar las alarmas del sensor reed (pruebas de mesa: sin puerta real el
 // reed dispara "Puerta abierta sin autorizacion" a cada rato y llena el
 // panel de alertas). Poner true al instalar el candado en la puerta.
-const bool ALERTAS_REED_ACTIVAS = false;
+const bool ALERTAS_REED_ACTIVAS = true;
 
 // Buzzer ACTIVO EN ALTO (confirmado en pruebas: con la logica invertida
 // sonaba desde el arranque). Si cambian el modulo, invertir estos dos.
@@ -189,9 +191,9 @@ const int   N_SEED        = sizeof(TOKENS_SEED) / sizeof(TOKENS_SEED[0]);
 String tokensValidos[MAX_TOKENS];      // lista vigente (se llena al sincronizar)
 int    nTokensValidos = 0;
 unsigned long ultimoSyncTokens = 0;
-// Cada 60s: el ESP32 revisa el TalkBack (tokens + orden GPS/LOC). Mas corto
-// = ubicacion on-demand mas rapida (~1.5-2.5 min); mas largo = mas bateria.
-const unsigned long INTERVALO_SYNC_TOKENS = 60000;
+// Cada 20s: el ESP32 revisa el TalkBack (tokens + orden GPS/LOC). Se prioriza
+// velocidad de respuesta sobre ahorro de bateria (ya no es una restriccion).
+const unsigned long INTERVALO_SYNC_TOKENS = 20000;
 
 // -------------------------
 // ESTADO
@@ -202,7 +204,7 @@ int16_t axAnt, ayAnt, azAnt;
 // Umbrales recalibrados para ADXL345 (rango ~ -256..256 en reposo, 1g).
 // AJUSTA estos valores viendo el Monitor Serial: en reposo la diferencia
 // entre lecturas deberia ser baja (decenas); un golpe fuerte sube mucho mas.
-const long UMBRAL_GOLPE = 500, UMBRAL_IMPACTO = 900;
+const long UMBRAL_GOLPE = 800, UMBRAL_IMPACTO = 1600;
 
 unsigned long inicioVentana = 0;
 int contadorEventos = 0;
@@ -229,7 +231,7 @@ int   ultBat = 0;
 unsigned long ultimoPost = 0;
 // Heartbeat (señal de vida + bateria) cada 90s. Debe ser MENOR que el umbral
 // de desconexion del backend (3 min) para que el candado no parpadee
-// "Desconectado" entre latidos. La radio ya despierta cada 60s por el sync.
+// "Desconectado" entre latidos. La radio ya despierta cada 20s por el sync.
 const unsigned long INTERVALO_POST = 90000;
 const unsigned long MIN_ENTRE_POST = 16000;   // ThingSpeak: min 15s
 int  saludHW = 0;          // 0=ok 1=rfid 2=acelerometro 3=solenoide
@@ -239,6 +241,11 @@ bool solenoideAbierto = false;
 // tieneFixGPS indica si ya consiguio senal de satelites (fix valido).
 bool gpsActivo = false;
 bool tieneFixGPS = false;
+
+// Si "Localizar" se pidio mientras el GPS aun no tenia fix, esta bandera
+// queda activa y el POLL de fondo (cada 5s) reporta la posicion apenas
+// consiga senal, sin esperar al proximo heartbeat (hasta 90s despues).
+bool locPendiente = false;
 
 // fallos detectados
 bool falloRFID = false, falloMPU = false;
@@ -518,11 +525,13 @@ void capturarUbicacionOnDemand() {
   gpsActivo = true;
   leerGPS();                  // intento rapido de refrescar la posicion
   if (tieneFixGPS && ultLat != 0 && ultLon != 0) {
+    locPendiente = false;
     while (millis() - ultimoPost < MIN_ENTRE_POST) delay(500);
     bool ok = postThingSpeak(0, saludHW, "Ubicacion on-demand");
     Serial.printf(">>> Localizar: posicion enviada %.6f, %.6f (%s)\n",
       ultLat, ultLon, ok ? "HTTP 200" : "FALLO");
   } else {
+    locPendiente = true;       // el poll de fondo la reporta apenas haya fix
     Serial.println(">>> Localizar: el GPS aun no tiene fix (buscando en segundo plano).");
     Serial.println("    Se reportara automaticamente en cuanto consiga senal (antena con vista al cielo).");
   }
@@ -708,12 +717,23 @@ void setup() {
 // -------------------------
 void loop() {
 
-  // ===== GPS EN SEGUNDO PLANO: lee cada 10s SIN spamear (solo avisa al
-  //       conseguir/perder fix). El GPS esta siempre encendido. =====
+  // ===== GPS EN SEGUNDO PLANO: lee cada 5s SIN spamear (solo avisa al
+  //       conseguir/perder fix). El GPS esta siempre encendido. Si habia
+  //       una solicitud de "Localizar" pendiente por falta de fix, se
+  //       reporta apenas se consigue (sin esperar al proximo heartbeat). =====
   static unsigned long ultGpsPoll = 0;
-  if (millis() - ultGpsPoll > 10000) {
+  if (millis() - ultGpsPoll > 5000) {
     ultGpsPoll = millis();
     leerGPS();
+    // Si habia un "Localizar" pendiente (sin fix en su momento) y ya hay fix,
+    // reportar apenas se pueda (respeta el limite de ThingSpeak de 1/15s;
+    // si esta dentro de esa ventana, se reintenta en el siguiente poll).
+    if (locPendiente && tieneFixGPS && millis() - ultimoPost >= MIN_ENTRE_POST) {
+      locPendiente = false;
+      bool ok = postThingSpeak(0, saludHW, "Ubicacion on-demand");
+      Serial.printf(">>> Localizar (fix recien conseguido): posicion enviada %.6f, %.6f (%s)\n",
+        ultLat, ultLon, ok ? "HTTP 200" : "FALLO");
+    }
   }
 
   // ===== DIAGNOSTICO cada 5s: touch, GPRS, GPS, reed y salud de sensores =====
@@ -738,8 +758,19 @@ void loop() {
     rfid.PCD_SetAntennaGain(rfid.RxGain_max);
     rfid.PCD_AntennaOn(); antenaOn = true;
     byte ver = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+    bool noResponde = (ver == 0x00 || ver == 0xFF);
     Serial.printf("TTP223 tocado -> antena RFID ON (RC522 ver=0x%02X%s), acerca la tarjeta\n",
-      ver, (ver == 0x00 || ver == 0xFF) ? " = NO RESPONDE, revisa cableado SPI" : "");
+      ver, noResponde ? " = NO RESPONDE, revisa cableado SPI" : "");
+    // Deteccion de fallo EN VIVO (no solo al arranque): cada toque real-chequea
+    // el RC522. Si cambia de estado respecto a lo ya reportado, se avisa.
+    if (noResponde && !falloRFID) {
+      falloRFID = true;
+      Serial.println("FALLO RC522 detectado en vivo (no respondia al tocar)");
+      reportar(0, 1, "RFID no responde");
+    } else if (!noResponde && falloRFID) {
+      falloRFID = false;
+      Serial.println("RC522 se recupero (vuelve a responder)");
+    }
   }
   if (!tocando && antenaOn) {
     rfid.PCD_AntennaOff(); antenaOn = false;
@@ -911,7 +942,7 @@ void loop() {
     }
   }
 
-  // ===== SYNC de tokens autorizados + orden GPS de la web (cada 3 min) =====
+  // ===== SYNC de tokens autorizados + orden GPS de la web (cada 20s) =====
   if (millis() - ultimoSyncTokens >= INTERVALO_SYNC_TOKENS) {
     ultimoSyncTokens = millis();
     sincronizarTokens();

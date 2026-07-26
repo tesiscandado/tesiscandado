@@ -17,6 +17,7 @@ export default function Autorizaciones() {
   const [tokens, setTokens]     = useState([])
   const [candados, setCandados] = useState([])
   const [operadores, setOperadores] = useState([])
+  const [errorOperadores, setErrorOperadores] = useState('')
   const [msg, setMsg]           = useState('')
   const [confirmar, setConfirmar] = useState(null)
   const [limite, setLimite]     = useState(5)
@@ -34,9 +35,23 @@ export default function Autorizaciones() {
 
   useEffect(() => {
     cargarTokens()
-    api.get('/candados/').then(r => setCandados(r.data))
-    api.get('/autorizacion/operadores').then(r => setOperadores(r.data))
+    api.get('/candados/').then(r => setCandados(r.data)).catch(() => {})
+    cargarOperadores()
   }, [])
+
+  function cargarOperadores() {
+    setErrorOperadores('')
+    api.get('/autorizacion/operadores')
+      .then(r => setOperadores(r.data))
+      .catch(err => {
+        setOperadores([])
+        setErrorOperadores(
+          err.response
+            ? `Error del servidor (${err.response.status}) al cargar operadores`
+            : 'No se pudo conectar con el servidor para cargar operadores'
+        )
+      })
+  }
 
   async function cargarTokens() {
     const res = await api.get('/autorizacion/tokens')
@@ -170,6 +185,17 @@ export default function Autorizaciones() {
               <option value="">Seleccionar operador</option>
               {operadores.map(op => <option key={op.id} value={op.id}>{op.nombre} ({op.usuario})</option>)}
             </select>
+            {errorOperadores && (
+              <p className="text-xs flex items-center gap-2" style={{ color: '#f87171' }}>
+                ⚠ {errorOperadores}
+                <button type="button" onClick={cargarOperadores} className="underline font-semibold">Reintentar</button>
+              </p>
+            )}
+            {!errorOperadores && operadores.length === 0 && (
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                No hay operadores registrados todavía. Créalos primero en la página "Operadores".
+              </p>
+            )}
 
             {/* Modo de validez */}
             <div className="flex gap-2">

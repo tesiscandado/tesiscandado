@@ -101,7 +101,7 @@ export default function Ruta() {
     setCargando(true)
     try {
       await api.post(`/candados/${candadoId}/ruta/iniciar`)
-      setMsg('Ruta iniciada. El candado encenderá el GPS en máx. 3 min.')
+      setMsg('Ruta iniciada. El candado empezará a agrupar los puntos en unos 20 segundos.')
       await cargarRuta(); await cargarRutas()
     } catch { setMsg('No se pudo iniciar la ruta') }
     finally { setCargando(false) }
@@ -113,9 +113,7 @@ export default function Ruta() {
       await api.post(`/candados/${candadoId}/ruta/detener`, {
         guardar, nombre: guardar ? (nombreRuta.trim() || null) : null,
       })
-      setMsg(guardar
-        ? 'Ruta guardada. El candado apagará el GPS en máx. 3 min.'
-        : 'Ruta descartada. El candado apagará el GPS en máx. 3 min.')
+      setMsg(guardar ? 'Ruta guardada.' : 'Ruta descartada.')
       setPidiendoNombre(false); setNombreRuta('')
       await cargarRuta(); await cargarRutas()
     } catch { setMsg('No se pudo detener la ruta') }
@@ -256,8 +254,9 @@ export default function Ruta() {
           <div className="surface-card rounded-2xl p-5">
             <h3 className="font-display t-pri font-semibold mb-1">Control de ruta</h3>
             <p className="t-mut text-xs mb-3">
-              El GPS del candado solo se enciende durante una ruta (ahorra batería).
-              El candado aplica el cambio en <b>máx. 3 min</b>.
+              El candado reporta su posición todo el tiempo; iniciar una ruta
+              agrupa esos puntos en un recorrido con nombre para revisarlo
+              después. El candado aplica el cambio en <b>unos 20 segundos</b>.
             </p>
             {rutaActiva ? (
               <>

@@ -135,8 +135,9 @@ def recibir_telemetria(data: TelemetriaInput):
 def solicitar_ubicacion(id: int):
     """La página pide ubicación actual (on-demand). Publica en el TalkBack la
     lista de tokens vigente + 'LOC:<nonce>': el ESP32 la ve en su próxima
-    sincronización, enciende el GPS un momento, reporta y lo vuelve a apagar.
-    El nonce evita que el candado repita la captura en cada sync."""
+    sincronización (cada 20s); si el GPS ya tiene fix reporta al instante,
+    si no, en cuanto lo consiga. El nonce evita que el candado repita la
+    captura en cada sync."""
     from datetime import datetime, timezone
     from tokens_sync import publicar_tokens
 
@@ -257,14 +258,32 @@ def ruta_candado(id: int, limite: int = 2000):
     except Exception:
         pass
 
-    puntos = (
+    # Ruta activa (control del GPS): la pagina muestra Iniciar/Detener segun esto.
+    # Se consulta ANTES que los puntos: si hay una ruta en curso, la vista "en
+    # vivo" se limita a lo capturado desde que inicio, en vez de mezclar todo
+    # el historial de posiciones (incluyendo rutas viejas ya guardadas).
+    ruta_activa = None
+    try:
+        act = (
+            supabase.table("rutas")
+            .select("id, nombre, iniciada_en")
+            .eq("candado_id", id)
+            .eq("estado", "activa")
+            .limit(1)
+            .execute()
+        )
+        ruta_activa = act.data[0] if act.data else None
+    except Exception:
+        pass   # tabla rutas aun no creada
+
+    q_puntos = (
         supabase.table("posiciones")
         .select("id, latitud, longitud, capturado_en, nivel_seguridad")
         .eq("candado_id", id)
-        .order("capturado_en")
-        .limit(limite)
-        .execute()
     )
+    if ruta_activa and ruta_activa.get("iniciada_en"):
+        q_puntos = q_puntos.gte("capturado_en", ruta_activa["iniciada_en"])
+    puntos = q_puntos.order("capturado_en").limit(limite).execute()
 
     # Alarmas NO ATENDIDAS con coordenadas: al atenderlas desde el dashboard
     # desaparecen del mapa en vivo (antes se mostraban todas las historicas).
@@ -288,21 +307,6 @@ def ruta_candado(id: int, limite: int = 2000):
                 "tipos_evento": ev.get("tipos_evento"),
             })
     alarmas.sort(key=lambda x: x.get("ocurrido_en") or "")
-
-    # Ruta activa (control del GPS): la pagina muestra Iniciar/Detener segun esto
-    ruta_activa = None
-    try:
-        act = (
-            supabase.table("rutas")
-            .select("id, nombre, iniciada_en")
-            .eq("candado_id", id)
-            .eq("estado", "activa")
-            .limit(1)
-            .execute()
-        )
-        ruta_activa = act.data[0] if act.data else None
-    except Exception:
-        pass   # tabla rutas aun no creada
 
     return {"puntos": puntos.data, "alarmas": alarmas, "ruta_activa": ruta_activa}
 
@@ -369,10 +373,13 @@ def sync_tokens(id: int):
     return {"ok": True, "tokens": csv.split(",") if csv else []}
 
 
-# ── CONTROL DE RUTA (encender/apagar el GPS del candado) ────
-# El admin inicia una ruta desde la pagina: se crea una fila 'activa' en rutas
-# y se publica GPS:1 en el TalkBack. El ESP32 lo lee en su proximo sync
-# (max 3 min), enciende el GPS y reporta posicion. Al detener, GPS:0 lo apaga.
+# ── CONTROL DE RUTA (agrupar el rastro GPS en un recorrido con nombre) ──
+# El GPS del candado esta siempre encendido; iniciar/detener ruta ya no lo
+# prende ni apaga. El admin inicia una ruta desde la pagina: se crea una fila
+# 'activa' en rutas y desde ahi la vista "en vivo" (GET /{id}/ruta) se limita
+# a los puntos capturados desde ese momento. GPS:1/GPS:0 se sigue publicando
+# en el TalkBack por compatibilidad, pero el ESP32 lo ignora para encender o
+# apagar el GPS (ver aplicarEstadoGPS en el firmware).
 
 @router.post("/{id}/ruta/iniciar")
 def iniciar_ruta(id: int):
@@ -388,7 +395,7 @@ def iniciar_ruta(id: int):
         raise HTTPException(status_code=500, detail="No se pudo crear la ruta")
 
     from tokens_sync import publicar_tokens
-    publicar_tokens(id)   # publica GPS:1 (el candado lo ve en max 3 min)
+    publicar_tokens(id)   # publica GPS:1 (compatibilidad; el candado ya reporta igual)
     return {"ok": True, "ruta_id": res.data[0]["id"]}
 
 
@@ -419,7 +426,7 @@ def detener_ruta(id: int, data: DetenerRutaInput):
         supabase.table("posiciones").delete().eq("ruta_id", ruta_id).execute()
 
     from tokens_sync import publicar_tokens
-    publicar_tokens(id)   # publica GPS:0 (el candado apaga el GPS en max 3 min)
+    publicar_tokens(id)   # publica GPS:0 (compatibilidad; el candado no lo apaga)
     return {"ok": True, "ruta_id": ruta_id, "guardada": data.guardar}
 
 

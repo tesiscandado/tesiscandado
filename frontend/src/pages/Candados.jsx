@@ -79,11 +79,26 @@ export default function Candados() {
   async function verAlertas(id) {
     if (expandido === id) { setExpandido(null); return }
     setExpandido(id)
-    if (!alertas[id]) {
+    try {
       const res = await api.get(`/candados/${id}/alertas`)
       setAlertas(prev => ({ ...prev, [id]: res.data }))
-    }
+    } catch { /* noop */ }
   }
+
+  // Mientras el panel de alertas de un candado esté abierto, refrescarlo cada
+  // 10s: antes se cargaba una sola vez y una alarma nueva (ej. impacto) no
+  // aparecía hasta cerrar y volver a abrir el panel.
+  useEffect(() => {
+    if (!expandido) return
+    const refrescarAlertas = async () => {
+      try {
+        const res = await api.get(`/candados/${expandido}/alertas`)
+        setAlertas(prev => ({ ...prev, [expandido]: res.data }))
+      } catch { /* noop */ }
+    }
+    const t = setInterval(refrescarAlertas, 10000)
+    return () => clearInterval(t)
+  }, [expandido])
 
   function atender(alarmaId, candadoId) {
     setConfirmar({
@@ -125,7 +140,8 @@ export default function Candados() {
       const desde = sol.data.solicitado_en
 
       // Esperar una posición capturada DESPUÉS de la solicitud.
-      // Peor caso: sync del ESP32 (60s) + fix GPS (60s) + post -> ~2.5 min
+      // Con el GPS siempre encendido y sync cada 20s, normalmente responde
+      // en segundos si ya hay fix; el margen de 4 min cubre el caso sin fix.
       for (let i = 0; i < 48; i++) {   // 48 * 5s = 4 min de margen
         await new Promise(r => setTimeout(r, 5000))
         if (solicitudRef.current !== miSolicitud) return   // modal cerrado
