@@ -44,10 +44,13 @@ def resumen():
             res = supabase.table("eventos").select("id", count="exact").eq("tipo_evento_id", t["id"]).gte("ocurrido_en", f"{hoy}T00:00:00Z").execute()
             intentos_fallidos += res.count or 0
 
-    # Alarmas activas
+    # Alarmas activas (mas recientes primero: sin order() PostgREST las devuelve
+    # por orden de insercion ascendente, es decir las MAS VIEJAS primero, y el
+    # dashboard mostraba alarmas de dias atras en la pagina 1 en vez de las
+    # nuevas). Mismo criterio que /registros/alertas.
     alarmas = supabase.table("alarmas").select(
         "id, nivel, atendida, eventos(ocurrido_en, candados(descripcion), tipos_evento(nombre))"
-    ).eq("atendida", False).execute()
+    ).eq("atendida", False).order("id", desc=True).execute()
 
     # Estado general
     if any(a["nivel"] == 3 for a in alarmas.data):
