@@ -32,6 +32,7 @@ class EtiquetaRutaInput(BaseModel):
 class DetenerRutaInput(BaseModel):
     guardar: bool = True                # False = descartar la ruta y sus puntos
     nombre:  Optional[str] = None       # nombre con el que se guarda
+    nivel_seguridad: Optional[str] = None   # 'segura' | 'media' | 'peligrosa': etiqueta del tramo recien recorrido
 
 
 # ── Candados ─────────────────────────────────────────────────
@@ -409,21 +410,37 @@ def detener_ruta(id: int, data: DetenerRutaInput):
     if not act.data:
         raise HTTPException(status_code=404, detail="No hay ruta activa para este candado")
     ruta_id = act.data[0]["id"]
+    iniciada_en = act.data[0].get("iniciada_en")
+    ahora = datetime.now(timezone.utc).isoformat()
 
     if data.guardar:
         nombre = data.nombre or f"Ruta {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')}"
         supabase.table("rutas").update({
             "estado": "guardada",
             "nombre": nombre,
-            "finalizada_en": datetime.now(timezone.utc).isoformat(),
+            "finalizada_en": ahora,
         }).eq("id", ruta_id).execute()
+        # Etiquetar el tramo recien recorrido con el nivel elegido al detener,
+        # en vez de depender de que el admin lo haga aparte punto por punto.
+        if data.nivel_seguridad in ("segura", "media", "peligrosa"):
+            q = supabase.table("posiciones").update(
+                {"nivel_seguridad": data.nivel_seguridad}
+            ).eq("candado_id", id).lte("capturado_en", ahora)
+            if iniciada_en:
+                q = q.gte("capturado_en", iniciada_en)
+            q.execute()
     else:
-        # Descartada: se borran sus puntos para no ensuciar el mapa en vivo
+        # Descartada: se borran sus puntos para no ensuciar el mapa en vivo.
+        # Se filtra por rango de tiempo (no por ruta_id: esa columna no queda
+        # confiablemente poblada en todos los entornos de la tabla posiciones).
         supabase.table("rutas").update({
             "estado": "descartada",
-            "finalizada_en": datetime.now(timezone.utc).isoformat(),
+            "finalizada_en": ahora,
         }).eq("id", ruta_id).execute()
-        supabase.table("posiciones").delete().eq("ruta_id", ruta_id).execute()
+        q = supabase.table("posiciones").delete().eq("candado_id", id).lte("capturado_en", ahora)
+        if iniciada_en:
+            q = q.gte("capturado_en", iniciada_en)
+        q.execute()
 
     from tokens_sync import publicar_tokens
     publicar_tokens(id)   # publica GPS:0 (compatibilidad; el candado no lo apaga)
@@ -455,13 +472,19 @@ def ver_ruta_guardada(id: int, ruta_id: int):
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
     r = ruta.data[0]
 
-    puntos = (
+    # Se filtra por candado_id + rango de tiempo (iniciada_en..finalizada_en),
+    # NO por ruta_id: verificado en produccion que esa columna no queda
+    # poblada de forma confiable, dejando toda ruta guardada con 0 puntos.
+    q = (
         supabase.table("posiciones")
         .select("id, latitud, longitud, capturado_en, nivel_seguridad")
-        .eq("ruta_id", ruta_id)
-        .order("capturado_en")
-        .execute()
+        .eq("candado_id", id)
     )
+    if r.get("iniciada_en"):
+        q = q.gte("capturado_en", r["iniciada_en"])
+    if r.get("finalizada_en"):
+        q = q.lte("capturado_en", r["finalizada_en"])
+    puntos = q.order("capturado_en").execute()
 
     # Alarmas ocurridas durante la ruta (entre inicio y fin). Solo severidad
     # 2+ (peligro real): los avisos de acceso autorizado no marcan la ruta.

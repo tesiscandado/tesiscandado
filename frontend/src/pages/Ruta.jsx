@@ -46,6 +46,7 @@ export default function Ruta() {
   const [vista, setVista]           = useState('live') // 'live' o id de ruta guardada
   const [pidiendoNombre, setPidiendoNombre] = useState(false)
   const [nombreRuta, setNombreRuta] = useState('')
+  const [nivelSeg, setNivelSeg]     = useState('')   // nivel de seguridad obligatorio al guardar
   const timer = useRef(null)
 
   // Cargar candados
@@ -107,14 +108,17 @@ export default function Ruta() {
     finally { setCargando(false) }
   }
 
-  async function detenerRuta(guardar) {
+  // Detener ruta SIEMPRE guarda (ya no se puede descartar): hay que elegir el
+  // nivel de seguridad del tramo recien recorrido antes de poder guardarlo.
+  async function detenerRuta() {
+    if (!nivelSeg) { setMsg('Selecciona el nivel de seguridad del tramo antes de guardar.'); return }
     setCargando(true)
     try {
       await api.post(`/candados/${candadoId}/ruta/detener`, {
-        guardar, nombre: guardar ? (nombreRuta.trim() || null) : null,
+        guardar: true, nombre: nombreRuta.trim() || null, nivel_seguridad: nivelSeg,
       })
-      setMsg(guardar ? 'Ruta guardada.' : 'Ruta descartada.')
-      setPidiendoNombre(false); setNombreRuta('')
+      setMsg('Ruta guardada.')
+      setPidiendoNombre(false); setNombreRuta(''); setNivelSeg('')
       await cargarRuta(); await cargarRutas()
     } catch { setMsg('No se pudo detener la ruta') }
     finally { setCargando(false) }
@@ -270,13 +274,21 @@ export default function Ruta() {
                     <input value={nombreRuta} onChange={e => setNombreRuta(e.target.value)}
                       placeholder="Nombre de la ruta (opcional)"
                       className="fld rounded-lg px-3 py-2 text-sm" />
-                    <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => detenerRuta(true)} disabled={cargando}
-                        className={`${btnCls} btn-accent disabled:opacity-50`}>💾 Guardar</button>
-                      <button onClick={() => detenerRuta(false)} disabled={cargando}
-                        className={btnCls} style={{ background: 'rgba(239,68,68,.15)', color: '#ef4444' }}>🗑 Descartar</button>
+                    <label className="t-mut text-xs">Nivel de seguridad del tramo recorrido (obligatorio)</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => setNivelSeg('segura')}
+                        className={`${btnCls} text-xs`}
+                        style={{ background: 'rgba(34,197,94,.15)', color: '#22c55e', opacity: nivelSeg === 'segura' ? 1 : 0.45 }}>🟢 Segura</button>
+                      <button type="button" onClick={() => setNivelSeg('media')}
+                        className={`${btnCls} text-xs`}
+                        style={{ background: 'rgba(245,158,11,.15)', color: '#f59e0b', opacity: nivelSeg === 'media' ? 1 : 0.45 }}>🟡 Media</button>
+                      <button type="button" onClick={() => setNivelSeg('peligrosa')}
+                        className={`${btnCls} text-xs`}
+                        style={{ background: 'rgba(239,68,68,.15)', color: '#ef4444', opacity: nivelSeg === 'peligrosa' ? 1 : 0.45 }}>🔴 Peligrosa</button>
                     </div>
-                    <button onClick={() => setPidiendoNombre(false)}
+                    <button onClick={detenerRuta} disabled={cargando || !nivelSeg}
+                      className={`${btnCls} btn-accent disabled:opacity-50`}>💾 Guardar ruta</button>
+                    <button onClick={() => { setPidiendoNombre(false); setNivelSeg('') }}
                       className={`${btnCls} surface-soft border bd t-mut`}>Cancelar</button>
                   </div>
                 ) : (

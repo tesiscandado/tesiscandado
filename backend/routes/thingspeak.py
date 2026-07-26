@@ -179,10 +179,14 @@ def _hacer_sync():
     max_entry  = last_entry
     ult_lat = ult_lon = ult_bat = ult_sol = None
 
-    # Throttle de guardado: solo se guarda 1 posicion cada 5 min (mientras el
-    # candado esta activo/reportando). Se parte de la ultima posicion guardada.
+    # Throttle de guardado: 1 posicion cada 5 min en reposo (para no llenar la
+    # tabla sin necesidad), pero cada 1 min mientras hay una RUTA ACTIVA (el
+    # heartbeat del ESP32 llega cada 90s, asi que en la practica se guarda casi
+    # cada heartbeat durante una ruta). Se parte de la ultima posicion guardada.
     from datetime import timedelta
-    INTERVALO_GUARDADO = timedelta(minutes=5)
+    INTERVALO_GUARDADO_IDLE = timedelta(minutes=5)
+    INTERVALO_GUARDADO_RUTA = timedelta(minutes=1)
+    INTERVALO_GUARDADO = INTERVALO_GUARDADO_RUTA if ruta_id is not None else INTERVALO_GUARDADO_IDLE
 
     def _parse_dt(s):
         if not s:
