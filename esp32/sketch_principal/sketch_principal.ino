@@ -179,18 +179,27 @@ MFRC522::MIFARE_Key keyFactory;
 // -------------------------
 // TOKENS AUTORIZADOS (validacion local offline)
 // La lista REAL se descarga del TalkBack de ThingSpeak (sincronizarTokens()).
-// TOKENS_SEED es solo un respaldo inicial por si aun no se ha sincronizado.
+// NOTA: bajo fail-closed ya NO se usa una semilla local para conceder acceso; el
+// candado solo abre con la lista confirmada por el backend (ver listaVigente()).
 // -------------------------
 #define TALKBACK_ID  "57245"
 #define TALKBACK_KEY "M2015WR5B484N7IG"
 #define MAX_TOKENS   30
 
-const char* TOKENS_SEED[] = { "LCBN8CC", "TK00001" };   // respaldo inicial
-const int   N_SEED        = sizeof(TOKENS_SEED) / sizeof(TOKENS_SEED[0]);
-
 String tokensValidos[MAX_TOKENS];      // lista vigente (se llena al sincronizar)
 int    nTokensValidos = 0;
 unsigned long ultimoSyncTokens = 0;
+
+// FAIL-CLOSED: para conceder acceso, la lista de tokens debe haberse bajado del
+// TalkBack con exito hace poco. Si el candado lleva mas de LISTA_MAX_EDAD_MS sin
+// poder sincronizar (sin GPRS, ThingSpeak caido...), NO concede acceso: asi un
+// token revocado/expirado deja de servir en vez de seguir vigente por trabajar
+// contra una lista vieja. Antes se conservaba la lista anterior indefinidamente,
+// lo que dejaba pasar tokens ya expirados. Sube LISTA_MAX_EDAD_MS si tu red
+// celular es muy inestable (a costa de mas tolerancia a tokens revocados).
+unsigned long ultimoSyncTokensOK = 0;              // 0 = nunca sincronizo
+bool          huboSyncTokensOK   = false;
+const unsigned long LISTA_MAX_EDAD_MS = 120000;    // 2 min de tolerancia
 // Cada 20s: el ESP32 revisa el TalkBack (tokens + orden GPS/LOC). Se prioriza
 // velocidad de respuesta sobre ahorro de bateria (ya no es una restriccion).
 const unsigned long INTERVALO_SYNC_TOKENS = 20000;
@@ -241,6 +250,13 @@ bool solenoideAbierto = false;
 // tieneFixGPS indica si ya consiguio senal de satelites (fix valido).
 bool gpsActivo = false;
 bool tieneFixGPS = false;
+
+// Ruta en curso (orden GPS:1 desde la web). El GPS sigue SIEMPRE encendido; esto
+// solo hace que el candado reporte su posicion mas seguido (cada minuto) mientras
+// dure la ruta, para que el mapa se dibuje en "tiempo real". Fuera de ruta, el
+// reporte vuelve al heartbeat normal (INTERVALO_POST).
+bool rutaEnCurso = false;
+const unsigned long INTERVALO_POST_RUTA = 60000;   // 1 min mientras hay ruta activa
 
 // Si "Localizar" se pidio mientras el GPS aun no tenia fix, esta bandera
 // queda activa y el POLL de fondo (cada 5s) reporta la posicion apenas
@@ -480,6 +496,13 @@ bool tokenAutorizado(String token) {
   return false;
 }
 
+// FAIL-CLOSED: la lista de tokens solo se considera de fiar si se sincronizo con
+// exito hace poco. Si no, no se concede acceso (un token revocado no debe seguir
+// abriendo por trabajar contra una lista vieja).
+bool listaVigente() {
+  return huboSyncTokensOK && (millis() - ultimoSyncTokensOK <= LISTA_MAX_EDAD_MS);
+}
+
 // -------------------------
 // GPS (encendido permanente, lectura en segundo plano)
 // -------------------------
@@ -501,17 +524,17 @@ bool leerGPS() {
   return ok;
 }
 
-// Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido;
-// esta funcion ya no lo apaga, solo deja constancia del cambio de ruta.
+// Estado de ruta desde la web (GPS:1/GPS:0). El GPS queda SIEMPRE encendido; esta
+// funcion no lo apaga: solo marca si hay una ruta en curso para reportar la
+// posicion cada minuto (rutaEnCurso) en vez de cada heartbeat.
 void aplicarEstadoGPS(bool activar) {
-  static bool primera = true;
-  if (!primera && activar == gpsActivo) return;   // sin cambio
-  primera = false;
-  // Asegurar que el GPS este encendido (por si un reinicio lo dejo apagado)
-  modem.enableGPS();
-  gpsActivo = true;   // el GPS permanece activo en todo momento
-  Serial.println(activar ? ">>> RUTA INICIADA (GPS ya encendido)"
-                         : ">>> RUTA DETENIDA (el GPS sigue encendido)");
+  modem.enableGPS();   // asegurar GPS encendido (por si un reinicio lo dejo apagado)
+  gpsActivo = true;    // el GPS permanece activo en todo momento
+  if (activar != rutaEnCurso) {
+    Serial.println(activar ? ">>> RUTA INICIADA (reporte de posicion cada minuto)"
+                           : ">>> RUTA DETENIDA (reporte vuelve al heartbeat normal)");
+  }
+  rutaEnCurso = activar;
 }
 
 // -------------------------
@@ -568,8 +591,18 @@ void sincronizarTokens() {
   }
   if (code != 200) { Serial.printf("HTTP error: %d\n", code); return; }
 
+  // Sync EXITOSO: hablamos con ThingSpeak y obtuvimos el estado actual del
+  // TalkBack (una lista vacia tambien es un estado valido = sin tokens). Esto
+  // renueva la ventana de fail-closed; sin este sello, el candado deja de
+  // conceder acceso pasados LISTA_MAX_EDAD_MS.
+  ultimoSyncTokensOK = millis();
+  huboSyncTokensOK   = true;
+
   // Extraer el CSV de  "command_string":"LCBN8CC,AB12CD3,GPS:0"
-  int k = resp.indexOf("\"command_string\":\"");
+  // Se toma el comando MAS RECIENTE (lastIndexOf): commands.json los devuelve del
+  // mas viejo al mas nuevo, asi que si por un fallo quedo algun comando viejo
+  // acumulado, prevalece la lista nueva y no una revocacion sin aplicar.
+  int k = resp.lastIndexOf("\"command_string\":\"");
   if (k < 0) {
     nTokensValidos = 0;
     Serial.println("Tokens: lista vacia (sin command_string)");
@@ -686,8 +719,11 @@ void setup() {
   enviarAT("AT+SAPBR=1,1", 10000);
   enviarAT("AT+SAPBR=2,1");
 
-  // Tokens: respaldo inicial + primera descarga desde el TalkBack
-  for (int i = 0; i < N_SEED && i < MAX_TOKENS; i++) tokensValidos[nTokensValidos++] = TOKENS_SEED[i];
+  // Tokens: primera descarga desde el TalkBack. Bajo fail-closed NO se siembran
+  // los TOKENS_SEED en la lista de acceso: conceder por un respaldo local (sin
+  // haber confirmado la lista real con el backend) es justo el hueco que permitia
+  // que un token revocado siguiera abriendo. El acceso queda cerrado hasta el
+  // primer sync exitoso (unos segundos tras levantar el GPRS).
   sincronizarTokens();
   ultimoSyncTokens = millis();
 
@@ -793,7 +829,13 @@ void loop() {
       Serial.println("Tarjeta detectada -> UID: " + uidStr);
       String token = leerToken();
       Serial.println("Token: [" + token + "]");
-      if (token.length() >= 4 && tokenAutorizado(token)) {
+      if (!listaVigente()) {
+        // FAIL-CLOSED: sin sincronizacion reciente no se concede acceso, aunque
+        // el token estuviera en la ultima lista conocida (podria estar revocado).
+        beep(150); delay(80); beep(150); delay(80); beep(150); delay(80); beep(150);   // 4 beeps: sin sync
+        Serial.println("ACCESO DENEGADO (lista de tokens sin sincronizar; fail-closed)");
+        reportar(2, saludHW, "Acceso denegado (sin sincronizacion)");   // evento 2
+      } else if (token.length() >= 4 && tokenAutorizado(token)) {
         beep(180);   // acceso concedido: 1 beep corto
         Serial.println("ACCESO CONCEDIDO");
         reportar(1, saludHW, "Acceso concedido");   // evento 1
@@ -950,10 +992,13 @@ void loop() {
 
   // ===== TELEMETRIA periodica (bateria + posicion GPS de fondo) =====
   // El poll de GPS en segundo plano ya mantiene ultLat/ultLon al dia; aqui
-  // solo se envia lo ultimo conocido junto con la bateria.
-  if (millis() - ultimoPost >= INTERVALO_POST) {
+  // solo se envia lo ultimo conocido junto con la bateria. Durante una RUTA
+  // ACTIVA se reporta cada minuto (INTERVALO_POST_RUTA) para que el mapa se
+  // dibuje en tiempo real; fuera de ruta, el heartbeat normal (INTERVALO_POST).
+  unsigned long intervaloPost = rutaEnCurso ? INTERVALO_POST_RUTA : INTERVALO_POST;
+  if (millis() - ultimoPost >= intervaloPost) {
     ultBat = modem.getBattPercent();
-    postThingSpeak(0, saludHW, "heartbeat");
+    postThingSpeak(0, saludHW, rutaEnCurso ? "posicion (ruta)" : "heartbeat");
   }
 
   delay(100);

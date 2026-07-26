@@ -104,6 +104,12 @@ export default function Autorizaciones() {
 
   async function cambiarEstado(id, estado) {
     await api.patch(`/autorizacion/tokens/${id}/estado?estado=${estado}`)
+    // El candado valida offline contra la lista que baja del TalkBack cada ~20s;
+    // el backend la reafirma como máximo cada minuto. Por eso el cambio no es
+    // instantáneo en el lector.
+    setMsg(estado === 'activo'
+      ? 'Token activado. El candado lo aceptará en menos de 1 minuto.'
+      : `Token ${estado}. El candado dejará de aceptarlo en menos de 1 minuto.`)
     cargarTokens()
   }
 

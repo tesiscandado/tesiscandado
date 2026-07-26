@@ -63,7 +63,7 @@ export default function Ruta() {
     clearInterval(timer.current)
     if (vista === 'live') {
       cargarRuta()
-      timer.current = setInterval(cargarRuta, 60000)
+      timer.current = setInterval(cargarRuta, 30000)
     } else {
       cargarRutaGuardada(vista)
     }
@@ -102,7 +102,7 @@ export default function Ruta() {
     setCargando(true)
     try {
       await api.post(`/candados/${candadoId}/ruta/iniciar`)
-      setMsg('Ruta iniciada. El candado empezará a agrupar los puntos en unos 20 segundos.')
+      setMsg('Ruta iniciada. El candado empezará a reportar su posición cada minuto (los primeros puntos tardan hasta ~1 min si el GPS aún busca señal).')
       await cargarRuta(); await cargarRutas()
     } catch { setMsg('No se pudo iniciar la ruta') }
     finally { setCargando(false) }
@@ -206,7 +206,7 @@ export default function Ruta() {
             <span className="text-xs flex items-center gap-1.5 px-2.5 py-1 rounded-full"
               style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
               <span className="w-2 h-2 rounded-full inline-block animate-pulse" style={{ background: '#ef4444' }} />
-              En vivo · cada 60s
+              En vivo · cada 30s
             </span>
           ) : (
             <span className="text-xs flex items-center gap-1.5 px-2.5 py-1 rounded-full surface-soft border bd t-mut">
@@ -258,9 +258,9 @@ export default function Ruta() {
           <div className="surface-card rounded-2xl p-5">
             <h3 className="font-display t-pri font-semibold mb-1">Control de ruta</h3>
             <p className="t-mut text-xs mb-3">
-              El candado reporta su posición todo el tiempo; iniciar una ruta
-              agrupa esos puntos en un recorrido con nombre para revisarlo
-              después. El candado aplica el cambio en <b>unos 20 segundos</b>.
+              Al iniciar una ruta, el candado reporta su posición <b>cada minuto</b>
+              {' '}y esos puntos se agrupan en un recorrido con nombre para revisarlo
+              después. Empieza a aplicar el cambio en <b>unos 20 segundos</b>.
             </p>
             {rutaActiva ? (
               <>
@@ -269,6 +269,14 @@ export default function Ruta() {
                   <span className="w-2 h-2 rounded-full inline-block animate-pulse" style={{ background: '#22c55e' }} />
                   Ruta en curso desde {new Date(rutaActiva.iniciada_en).toLocaleTimeString()}
                 </div>
+                {puntos.length === 0 && (
+                  <div className="rounded-lg px-3 py-2 mb-3 text-xs flex items-start gap-2"
+                    style={{ background: 'rgba(245,158,11,.12)', color: '#f59e0b' }}>
+                    <span>📡</span>
+                    <span>Esperando la primera posición del candado. Si tarda, el GPS
+                      aún está buscando señal (necesita vista al cielo).</span>
+                  </div>
+                )}
                 {pidiendoNombre ? (
                   <div className="flex flex-col gap-2">
                     <input value={nombreRuta} onChange={e => setNombreRuta(e.target.value)}

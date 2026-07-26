@@ -154,15 +154,26 @@ def _hacer_sync():
 
     # Ruta activa: los puntos GPS nuevos se asocian a ella (control desde la web)
     ruta_id = None
+    ruta_iniciada_en = None
     try:
         act = (
-            supabase.table("rutas").select("id")
+            supabase.table("rutas").select("id, iniciada_en")
             .eq("candado_id", candado_id).eq("estado", "activa")
             .limit(1).execute()
         )
-        ruta_id = act.data[0]["id"] if act.data else None
+        if act.data:
+            ruta_id = act.data[0]["id"]
+            ruta_iniciada_en = act.data[0].get("iniciada_en")
     except Exception:
         pass   # tabla rutas aun no creada
+
+    # Auto-sanacion del TalkBack: reafirma la lista vigente de tokens para que un
+    # publish previo fallido no deje un token expirado sirviendo en el candado.
+    try:
+        from tokens_sync import republicar_si_necesario
+        republicar_si_necesario(candado_id)
+    except Exception:
+        pass
 
     url = (
         f"https://api.thingspeak.com/channels/{TS_CHANNEL}/feeds.json"
@@ -197,14 +208,20 @@ def _hacer_sync():
         except (ValueError, TypeError):
             return None
 
-    ult_pos = (
+    # Durante una ruta activa, el "ultimo guardado" se mide DENTRO de la ventana de
+    # la ruta (capturado_en >= iniciada_en). Asi el primer punto del recorrido se
+    # guarda de inmediato en vez de heredar el intervalo de un punto viejo captado
+    # en reposo antes de iniciar la ruta (por eso el mapa salia con 0 puntos).
+    ult_pos_q = (
         supabase.table("posiciones")
         .select("capturado_en")
         .eq("candado_id", candado_id)
         .order("capturado_en", desc=True)
         .limit(1)
-        .execute()
     )
+    if ruta_id is not None and ruta_iniciada_en:
+        ult_pos_q = ult_pos_q.gte("capturado_en", ruta_iniciada_en)
+    ult_pos = ult_pos_q.execute()
     ultimo_guardado = _parse_dt(ult_pos.data[0]["capturado_en"]) if ult_pos.data else None
 
     for f in feeds:

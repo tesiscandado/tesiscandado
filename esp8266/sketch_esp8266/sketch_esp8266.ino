@@ -73,13 +73,19 @@ MFRC522::MIFARE_Key keyFactory;
 // -------------------------
 // TOKENS (lista que se descarga del TalkBack)
 // -------------------------
-const char* TOKENS_SEED[] = { "LCBN8CC", "TK00001" };   // respaldo inicial
-const int   N_SEED        = sizeof(TOKENS_SEED) / sizeof(TOKENS_SEED[0]);
-
+// NOTA: bajo fail-closed ya NO se usa una semilla local para conceder acceso; el
+// candado solo abre con la lista confirmada por el backend (ver listaVigente()).
 String tokensValidos[MAX_TOKENS];
 int    nTokensValidos = 0;
 unsigned long ultimoSyncTokens = 0;
 const unsigned long INTERVALO_SYNC_TOKENS = 60000;
+
+// FAIL-CLOSED: solo se concede acceso si la lista de tokens se bajo del TalkBack
+// con exito hace poco. Sin sync reciente NO se abre (un token revocado deja de
+// servir en vez de seguir vigente por una lista vieja). Ver ESP32 para detalle.
+unsigned long ultimoSyncTokensOK = 0;              // 0 = nunca sincronizo
+bool          huboSyncTokensOK   = false;
+const unsigned long LISTA_MAX_EDAD_MS = 180000;    // 3 min (sync cada 60s aqui)
 
 // -------------------------
 // ESTADO
@@ -230,6 +236,11 @@ bool tokenAutorizado(String token) {
   return false;
 }
 
+// FAIL-CLOSED: la lista solo es de fiar si se sincronizo con exito hace poco.
+bool listaVigente() {
+  return huboSyncTokensOK && (millis() - ultimoSyncTokensOK <= LISTA_MAX_EDAD_MS);
+}
+
 // -------------------------
 // GPS
 // -------------------------
@@ -260,7 +271,13 @@ void sincronizarTokens() {
   if (ia >= 0) { int c1 = act.indexOf(',', ia), c2 = act.indexOf(',', c1 + 1); if (c1 >= 0 && c2 >= 0) code = act.substring(c1 + 1, c2).toInt(); }
   if (code != 200) return;
 
-  int k = resp.indexOf("\"command_string\":\"");
+  // Sync EXITOSO (HTTP 200): renueva la ventana de fail-closed.
+  ultimoSyncTokensOK = millis();
+  huboSyncTokensOK   = true;
+
+  // Comando MAS RECIENTE (lastIndexOf): commands.json los devuelve de viejo a
+  // nuevo; si quedo algun comando viejo acumulado, prevalece la lista nueva.
+  int k = resp.lastIndexOf("\"command_string\":\"");
   if (k < 0) { nTokensValidos = 0; Serial.println("Tokens: lista vacia"); return; }
   k += 18;
   int fin = resp.indexOf('"', k);
@@ -273,7 +290,9 @@ void sincronizarTokens() {
     int coma = cuerpo.indexOf(',', ini);
     if (coma < 0) coma = cuerpo.length();
     String tk = cuerpo.substring(ini, coma); tk.trim();
-    if (tk.length() > 0) tokensValidos[n++] = tk;
+    // Ignorar comandos especiales del backend (no son tokens): GPS:x / LOC:<nonce>
+    if (tk.length() > 0 && !tk.startsWith("GPS:") && !tk.startsWith("LOC:"))
+      tokensValidos[n++] = tk;
     ini = coma + 1;
   }
   nTokensValidos = n;
@@ -321,8 +340,8 @@ void setup() {
   enviarAT("AT+SAPBR=1,1", 10000);
   enviarAT("AT+SAPBR=2,1");
 
-  // Tokens: respaldo inicial + primera descarga
-  for (int i = 0; i < N_SEED && i < MAX_TOKENS; i++) tokensValidos[nTokensValidos++] = TOKENS_SEED[i];
+  // Tokens: primera descarga desde el TalkBack. Bajo fail-closed no se siembra
+  // ninguna lista local; el acceso queda cerrado hasta el primer sync exitoso.
   sincronizarTokens();
   ultimoSyncTokens = millis();
 
@@ -350,7 +369,11 @@ void loop() {
       ultimaLectura = millis();
       String token = leerToken();
       Serial.println("Token: [" + token + "]");
-      if (token.length() >= 4 && tokenAutorizado(token)) {
+      if (!listaVigente()) {
+        // FAIL-CLOSED: sin sincronizacion reciente no se concede acceso.
+        Serial.println("ACCESO DENEGADO (lista de tokens sin sincronizar; fail-closed)");
+        reportar(2, saludHW, "Acceso denegado (sin sincronizacion)");
+      } else if (token.length() >= 4 && tokenAutorizado(token)) {
         Serial.println("ACCESO CONCEDIDO");
         reportar(1, saludHW, "Acceso concedido");
         abrirSolenoide();
