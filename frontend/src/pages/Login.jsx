@@ -11,7 +11,6 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError]     = useState(false)
   const [loading, setLoading] = useState(false)
-  const [showVideo, setShowVideo] = useState(false)
   const { login } = useAuth()
   const navigate  = useNavigate()
   const controls  = useAnimationControls()
@@ -23,8 +22,8 @@ export default function Login() {
     try {
       const res = await api.post('/auth/login', { usuario, password })
       login(res.data.token, res.data.nombre)
-      // Credenciales correctas -> reproducir video de intro y luego entrar
-      setShowVideo(true)
+      // Credenciales correctas -> entrar directo al panel
+      navigate('/panel')
     } catch {
       // Credenciales incorrectas -> vibrar + bordes rojos
       setError(true)
@@ -38,23 +37,6 @@ export default function Login() {
     background: 'var(--bg)',
     borderColor: error ? '#ef4444' : 'var(--line)',
     color: 'var(--text)',
-  }
-
-  // Overlay de video al iniciar sesion correctamente
-  if (showVideo) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center"
-        style={{ background: 'radial-gradient(circle at 50% 45%, #0d3b34 0%, #061513 55%, #020807 100%)' }}>
-        <video
-          src="/iniciarSesion.mp4"
-          autoPlay playsInline
-          onEnded={() => navigate('/panel')}
-          onError={() => navigate('/panel')}
-          className="max-w-full max-h-full w-auto h-auto object-contain"
-          style={{ filter: 'drop-shadow(0 0 60px rgba(45,212,191,.35))' }}
-        />
-      </div>
-    )
   }
 
   return (
