@@ -33,22 +33,28 @@ def seed_admins():
         {"usuario": "ricardo", "password": "ricardo123", "nombre": "Ricardo"},
         {"usuario": "gianni",  "password": "gianni123",  "nombre": "Gianni"},
     ]
-    creados, existentes = [], []
+    creados, actualizados = [], []
     for u in nuevos:
+        ph = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt()).decode()
         ya = supabase.table("usuarios").select("id").ilike("usuario", u["usuario"]).execute()
         if ya.data:
-            existentes.append(u["usuario"])
-            continue
-        ph = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt()).decode()
-        supabase.table("usuarios").insert({
-            "rol_id":        admin_id,
-            "usuario":       u["usuario"],
-            "password_hash": ph,
-            "nombre":        u["nombre"],
-            "activo":        True,
-        }).execute()
-        creados.append(u["usuario"])
-    return {"ok": True, "rol_admin_id": admin_id, "creados": creados, "ya_existian": existentes}
+            # Ya existe: promover a administrador y fijar la contraseña pedida
+            supabase.table("usuarios").update({
+                "rol_id":        admin_id,
+                "password_hash": ph,
+                "activo":        True,
+            }).eq("id", ya.data[0]["id"]).execute()
+            actualizados.append(u["usuario"])
+        else:
+            supabase.table("usuarios").insert({
+                "rol_id":        admin_id,
+                "usuario":       u["usuario"],
+                "password_hash": ph,
+                "nombre":        u["nombre"],
+                "activo":        True,
+            }).execute()
+            creados.append(u["usuario"])
+    return {"ok": True, "rol_admin_id": admin_id, "creados": creados, "actualizados": actualizados}
 
 
 @router.post("/login")
