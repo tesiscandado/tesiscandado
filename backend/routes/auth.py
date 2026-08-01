@@ -14,49 +14,6 @@ class LoginInput(BaseModel):
     password: str
 
 
-@router.post("/seed-admins")
-def seed_admins():
-    """TEMPORAL: crea dos usuarios administradores (idempotente: si ya existen,
-    no los duplica). Se elimina despues de usarlo una vez."""
-    # Rol administrador (por nombre; si no, rol_id = 1 por convencion)
-    admin_id = 1
-    try:
-        roles = supabase.table("roles").select("id, nombre").execute()
-        for r in roles.data or []:
-            if "admin" in (r.get("nombre") or "").lower():
-                admin_id = r["id"]
-                break
-    except Exception:
-        pass
-
-    nuevos = [
-        {"usuario": "ricardo", "password": "ricardo123", "nombre": "Ricardo"},
-        {"usuario": "gianni",  "password": "gianni123",  "nombre": "Gianni"},
-    ]
-    creados, actualizados = [], []
-    for u in nuevos:
-        ph = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt()).decode()
-        ya = supabase.table("usuarios").select("id").ilike("usuario", u["usuario"]).execute()
-        if ya.data:
-            # Ya existe: promover a administrador y fijar la contraseña pedida
-            supabase.table("usuarios").update({
-                "rol_id":        admin_id,
-                "password_hash": ph,
-                "activo":        True,
-            }).eq("id", ya.data[0]["id"]).execute()
-            actualizados.append(u["usuario"])
-        else:
-            supabase.table("usuarios").insert({
-                "rol_id":        admin_id,
-                "usuario":       u["usuario"],
-                "password_hash": ph,
-                "nombre":        u["nombre"],
-                "activo":        True,
-            }).execute()
-            creados.append(u["usuario"])
-    return {"ok": True, "rol_admin_id": admin_id, "creados": creados, "actualizados": actualizados}
-
-
 @router.post("/login")
 def login(data: LoginInput):
     resultado = (
