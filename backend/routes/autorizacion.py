@@ -98,6 +98,13 @@ def eliminar_operador(id: int):
 
 
 # ── Tokens ───────────────────────────────────────────────────
+def _admin_id():
+    """ID de UN administrador (rol_id=1). Usa limit(1) en vez de single() para
+    NO reventar (500) cuando hay varios administradores o ninguno."""
+    res = supabase.table("usuarios").select("id").eq("rol_id", 1).limit(1).execute()
+    return res.data[0]["id"] if res.data else None
+
+
 @router.get("/tokens")
 def listar_tokens():
     res = supabase.table("tokens_sincronizacion").select(
@@ -119,7 +126,7 @@ def crear_token_fisico(data: TokenFisicoInput):
     if existe.data:
         raise HTTPException(status_code=400, detail="Ese token ya está registrado")
 
-    admin = supabase.table("usuarios").select("id").eq("rol_id", 1).single().execute()
+    admin_id = _admin_id()
 
     res = supabase.table("tokens_sincronizacion").insert({
         "candado_id":   data.candado_id,
@@ -127,7 +134,7 @@ def crear_token_fisico(data: TokenFisicoInput):
         "etiqueta":     data.etiqueta,
         "tipo":         "rfid_fisico",
         "estado":       "activo",
-        "generado_por": admin.data["id"],
+        "generado_por": admin_id,
     }).execute()
     try: publicar_tokens(data.candado_id)   # actualizar lista en el candado
     except Exception: pass
@@ -153,7 +160,7 @@ def crear_token_app(data: TokenAppInput):
     """
     from datetime import datetime, timezone, timedelta
 
-    admin = supabase.table("usuarios").select("id").eq("rol_id", 1).single().execute()
+    admin_id = _admin_id()
 
     if data.modo == "programado":
         if not data.valido_desde or not data.valido_hasta:
@@ -164,7 +171,7 @@ def crear_token_app(data: TokenAppInput):
             "tipo":         "app_nfc",
             "estado":       "programado",
             "operador_id":  data.operador_id,
-            "generado_por": admin.data["id"],
+            "generado_por": admin_id,
             "generar_en":   data.valido_desde,
             "valido_desde": data.valido_desde,
             "valido_hasta": data.valido_hasta,
@@ -177,7 +184,7 @@ def crear_token_app(data: TokenAppInput):
             "tipo":         "app_nfc",
             "estado":       "pendiente",
             "operador_id":  data.operador_id,
-            "generado_por": admin.data["id"],
+            "generado_por": admin_id,
             "generar_en":   ahora.isoformat(),
             "valido_desde": ahora.isoformat(),
             "valido_hasta": (ahora + timedelta(minutes=2)).isoformat(),
